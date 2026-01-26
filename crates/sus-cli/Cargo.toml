@@ -1,0 +1,25 @@
+[package]
+name = "sus-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "sus"
+path = "src/main.rs"
+
+[dependencies]
+sus-common = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+dialoguer = { workspace = true }
+indicatif = { workspace = true }
+colored = { workspace = true }
+console = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+dotenvy = { workspace = true }

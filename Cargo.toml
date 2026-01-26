@@ -1,0 +1,64 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sus-cli",
+    "crates/sus-api",
+    "crates/sus-worker",
+    "crates/sus-watcher",
+    "crates/sus-cve",
+    "crates/sus-common",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["sus contributors"]
+license = "MIT"
+repository = "https://github.com/sus-dev/sus"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.43", features = ["full"] }
+
+# Web framework
+axum = { version = "0.8", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "compression-gzip", "trace"] }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono", "uuid"] }
+deadpool-redis = "0.18"
+redis = { version = "0.27", features = ["tokio-comp"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "gzip"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+dialoguer = "0.11"
+indicatif = "0.17"
+colored = "2.1"
+console = "0.15"
+
+# Utilities
+anyhow = "1.0"
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.11", features = ["v4", "serde"] }
+url = { version = "2.5", features = ["serde"] }
+semver = { version = "1.0", features = ["serde"] }
+flate2 = "1.0"
+tar = "0.4"
+tempfile = "3.14"
+dotenvy = "0.15"
+async-trait = "0.1"
+urlencoding = "2.1"
+
+# Internal crates
+sus-common = { path = "crates/sus-common" }

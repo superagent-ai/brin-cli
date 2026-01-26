@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sus
+      POSTGRES_PASSWORD: sus
+      POSTGRES_DB: sus
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sus -d sus"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis queue
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # API Server
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://sus:sus@db:5432/sus
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: sus_api=debug,tower_http=debug
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Scan Workers (can scale)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      DATABASE_URL: postgres://sus:sus@db:5432/sus
+      REDIS_URL: redis://redis:6379
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      RUST_LOG: sus_worker=debug
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+
+  # npm Registry Watcher
+  watcher:
+    build:
+      context: .
+      dockerfile: Dockerfile.watcher
+    environment:
+      REDIS_URL: redis://redis:6379
+      POLL_INTERVAL_SECS: 60
+      RUST_LOG: sus_watcher=info
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # CVE Enrichment Worker
+  cve:
+    build:
+      context: .
+      dockerfile: Dockerfile.cve
+    environment:
+      DATABASE_URL: postgres://sus:sus@db:5432/sus
+      NVD_API_KEY: ${NVD_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      CVE_POLL_INTERVAL_MINS: 15
+      RUST_LOG: sus_cve=info
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
