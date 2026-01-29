@@ -1,11 +1,30 @@
-# sus
+<p align="center">
+  <img src="assets/logo.png" alt="sus" height="120">
+</p>
 
-**is this package sus?** 🔍
+<h1 align="center">sus</h1>
 
-package gateway for ai agents — detects malware, cves, prompt injection, and generates usage docs for your dependencies.
+<p align="center">
+  <strong>is this package sus?</strong> 🔍
+  <br>
+  package gateway for ai agents — detects malware, cves, prompt injection, and generates usage docs for your dependencies.
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Backed by Y Combinator](https://img.shields.io/badge/Backed%20by-Y%20Combinator-orange)](https://www.ycombinator.com)
+<p align="center">
+  <a href="https://github.com/superagent-ai/sus/stargazers"><img src="https://img.shields.io/github/stars/superagent-ai/sus?style=social" alt="GitHub stars"></a>
+  &nbsp;
+  <a href="https://discord.gg/spZ7MnqFT4"><img src="https://img.shields.io/badge/Discord-Join-7289da?logo=discord&logoColor=white" alt="Discord"></a>
+  &nbsp;
+  <a href="https://x.com/superagent_ai"><img src="https://img.shields.io/badge/X-Follow-000000?logo=x&logoColor=white" alt="X"></a>
+  &nbsp;
+  <a href="https://www.linkedin.com/company/superagent-sh/"><img src="https://img.shields.io/badge/LinkedIn-Follow-0077b5?logo=linkedin&logoColor=white" alt="LinkedIn"></a>
+</p>
+
+<p align="center">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  &nbsp;
+  <a href="https://www.ycombinator.com"><img src="https://img.shields.io/badge/Backed%20by-Y%20Combinator-orange" alt="Backed by Y Combinator"></a>
+</p>
 
 ---
 
@@ -205,6 +224,14 @@ def is_safe(package: str) -> bool:
     data = r.json()
     return data["risk_level"] == "clean"
 ```
+
+### integrations
+
+- **[Cursor](https://www.sus-pm.com/docs/guides/cursor)** — hooks for automatic package scanning
+- **[Claude Code](https://www.sus-pm.com/docs/guides/claude-code)**
+- **[OpenCode](https://www.sus-pm.com/docs/guides/opencode)**
+- **[Gemini CLI](https://www.sus-pm.com/docs/guides/gemini-cli)**
+- **[Codex CLI](https://www.sus-pm.com/docs/guides/codex-cli)**
 
 ---
 
