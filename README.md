@@ -11,19 +11,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/superagent-ai/sus/stargazers"><img src="https://img.shields.io/github/stars/superagent-ai/sus?style=social" alt="GitHub stars"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  &nbsp;
+  <a href="https://www.ycombinator.com"><img src="https://img.shields.io/badge/Backed%20by-Y%20Combinator-orange" alt="Backed by Y Combinator"></a>
   &nbsp;
   <a href="https://discord.gg/spZ7MnqFT4"><img src="https://img.shields.io/badge/Discord-Join-7289da?logo=discord&logoColor=white" alt="Discord"></a>
   &nbsp;
   <a href="https://x.com/superagent_ai"><img src="https://img.shields.io/badge/X-Follow-000000?logo=x&logoColor=white" alt="X"></a>
   &nbsp;
   <a href="https://www.linkedin.com/company/superagent-sh/"><img src="https://img.shields.io/badge/LinkedIn-Follow-0077b5?logo=linkedin&logoColor=white" alt="LinkedIn"></a>
-</p>
-
-<p align="center">
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  &nbsp;
-  <a href="https://www.ycombinator.com"><img src="https://img.shields.io/badge/Backed%20by-Y%20Combinator-orange" alt="Backed by Y Combinator"></a>
 </p>
 
 ---
