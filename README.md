@@ -233,13 +233,32 @@ def is_safe(package: str) -> bool:
 
 ---
 
+## local development
+
+```bash
+# setup
+git clone https://github.com/superagent-ai/sus
+cd sus
+make setup              # configure git hooks
+
+# start databases + api + worker
+make dev
+
+# or run individually
+make dev-api            # api only (localhost:3000)
+make dev-worker         # worker only
+```
+
+requires docker for postgres/redis. set `ANTHROPIC_API_KEY` in `.env` for agentic analysis.
+
+---
+
 ## contributing
 
 ```bash
-git clone https://github.com/superagent-ai/sus
-cd sus
 cargo build
 cargo test
+make check              # fmt + lint + test
 ```
 
 see [CONTRIBUTING.md](CONTRIBUTING.md) for details.

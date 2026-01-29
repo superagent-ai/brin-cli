@@ -1,4 +1,4 @@
-.PHONY: setup fmt lint test check all
+.PHONY: setup fmt lint test check all dev dev-api dev-worker
 
 # Set up git hooks
 setup:
@@ -26,3 +26,19 @@ build:
 
 # Run all checks before commit
 all: check build
+
+# Start local development (databases + API + worker)
+dev:
+	docker-compose up -d db redis
+	@echo "Starting API and worker..."
+	@trap 'kill 0' INT; cargo run --bin sus-api & cargo run --bin sus-worker & wait
+
+# Start only the API
+dev-api:
+	docker-compose up -d db redis
+	cargo run --bin sus-api
+
+# Start only the worker
+dev-worker:
+	docker-compose up -d db redis
+	cargo run --bin sus-worker

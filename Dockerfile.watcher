@@ -1,16 +1,25 @@
-# Build stage
-FROM rust:1.83-alpine AS builder
-
+# Stage 1: Chef setup
+FROM rust:1.85-alpine AS chef
 RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static
-
+RUN cargo install cargo-chef
 WORKDIR /app
 
-# Copy workspace files
+# Stage 2: Generate recipe
+FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Build release binary
-RUN cargo build --release --package sus-watcher
+# Stage 3: Build dependencies (cached)
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+COPY migrations ./migrations
+RUN cargo chef cook --release --recipe-path recipe.json
+
+# Build the actual binary
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+RUN cargo build --release --package watcher
 
 # Runtime stage
 FROM alpine:3.20
