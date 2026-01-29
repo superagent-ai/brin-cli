@@ -1,12 +1,15 @@
 //! npm registry changes feed client
+//!
+//! Uses the npm replicate.npmjs.com CouchDB changes feed with descending=true
+//! to get the most recent package updates.
 
 use anyhow::Result;
 use reqwest::Client;
 use serde::Deserialize;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::HashSet;
+use std::sync::Mutex;
 
 const CHANGES_URL: &str = "https://replicate.npmjs.com/_changes";
-const STATE_FILE: &str = ".sus-watcher-seq";
 
 /// A package change event
 #[derive(Debug, Clone)]
@@ -19,11 +22,11 @@ pub struct PackageChange {
 #[derive(Deserialize)]
 struct ChangesResponse {
     results: Vec<ChangeResult>,
-    last_seq: serde_json::Value,
 }
 
 #[derive(Deserialize)]
 struct ChangeResult {
+    seq: u64,
     id: String,
     deleted: Option<bool>,
 }
@@ -31,44 +34,39 @@ struct ChangeResult {
 /// npm registry watcher
 pub struct NpmWatcher {
     client: Client,
-    last_seq: AtomicU64,
+    /// Track seen sequence numbers to avoid processing duplicates
+    seen_seqs: Mutex<HashSet<u64>>,
+    /// Maximum number of seqs to track (prevent unbounded memory growth)
+    max_seen: usize,
 }
 
 impl NpmWatcher {
     /// Create a new npm watcher
     pub fn new() -> Self {
-        // Try to load last sequence from file
-        let last_seq = std::fs::read_to_string(STATE_FILE)
-            .ok()
-            .and_then(|s| s.trim().parse().ok())
-            .unwrap_or(0);
-
         Self {
             client: Client::builder()
                 .user_agent(format!("sus-watcher/{}", env!("CARGO_PKG_VERSION")))
-                .timeout(std::time::Duration::from_secs(120))
+                .timeout(std::time::Duration::from_secs(30))
                 .build()
                 .expect("Failed to create HTTP client"),
-            last_seq: AtomicU64::new(last_seq),
+            seen_seqs: Mutex::new(HashSet::new()),
+            max_seen: 10000, // Keep track of last 10k sequences
         }
     }
 
-    /// Poll for changes since last sequence
+    /// Poll for recent changes using descending=true
+    /// Returns new packages that haven't been seen before
     pub async fn poll(&self) -> Result<Vec<PackageChange>> {
-        let since = self.last_seq.load(Ordering::Relaxed);
-
-        tracing::debug!("Polling npm changes since seq {}", since);
-
         // Limit results to avoid huge responses
         let limit = std::env::var("CHANGES_LIMIT")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(100);
 
-        let url = format!(
-            "{}?since={}&limit={}&include_docs=false",
-            CHANGES_URL, since, limit
-        );
+        // Use descending=true to get most recent changes first
+        let url = format!("{}?descending=true&limit={}", CHANGES_URL, limit);
+
+        tracing::debug!("Polling npm changes: {}", url);
 
         let response = self.client.get(&url).send().await?;
 
@@ -78,61 +76,37 @@ impl NpmWatcher {
 
         let changes_response: ChangesResponse = response.json().await?;
 
-        // Parse last_seq (can be string or number)
-        let new_seq = parse_seq(&changes_response.last_seq);
-        if new_seq > since {
-            self.last_seq.store(new_seq, Ordering::Relaxed);
+        let mut seen = self.seen_seqs.lock().unwrap();
 
-            // Persist to file
-            if let Err(e) = std::fs::write(STATE_FILE, new_seq.to_string()) {
-                tracing::warn!("Failed to persist last_seq: {}", e);
-            }
+        // Prune old entries if we've accumulated too many
+        if seen.len() > self.max_seen {
+            seen.clear();
+            tracing::debug!("Cleared seen_seqs cache");
         }
 
-        // Convert to PackageChange (skip design documents and deleted packages)
+        // Filter to only new changes we haven't seen
         let changes: Vec<PackageChange> = changes_response
             .results
             .into_iter()
-            .filter(|result| !result.id.starts_with('_') && !result.deleted.unwrap_or(false))
+            .filter(|result| {
+                // Skip if we've seen this seq before
+                if seen.contains(&result.seq) {
+                    return false;
+                }
+                // Skip design documents and deleted packages
+                if result.id.starts_with('_') || result.deleted.unwrap_or(false) {
+                    return false;
+                }
+                // Mark as seen
+                seen.insert(result.seq);
+                true
+            })
             .map(|result| PackageChange {
                 name: result.id,
-                version: None, // We'd need to fetch the doc to get the version
+                version: None,
             })
             .collect();
 
         Ok(changes)
-    }
-
-    /// Get the current sequence number
-    #[allow(dead_code)]
-    pub fn current_seq(&self) -> u64 {
-        self.last_seq.load(Ordering::Relaxed)
-    }
-}
-
-/// Parse sequence number from JSON value
-fn parse_seq(value: &serde_json::Value) -> u64 {
-    match value {
-        serde_json::Value::Number(n) => n.as_u64().unwrap_or(0),
-        serde_json::Value::String(s) => {
-            // CouchDB 2.x uses format like "123-abc"
-            s.split('-')
-                .next()
-                .and_then(|n| n.parse().ok())
-                .unwrap_or(0)
-        }
-        _ => 0,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_seq() {
-        assert_eq!(parse_seq(&serde_json::json!(123)), 123);
-        assert_eq!(parse_seq(&serde_json::json!("456-abc")), 456);
-        assert_eq!(parse_seq(&serde_json::json!("789")), 789);
     }
 }

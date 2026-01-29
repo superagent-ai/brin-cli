@@ -4,8 +4,10 @@ mod scanner;
 mod skill_generator;
 
 use anyhow::Result;
+use axum::{routing::get, Json, Router};
 use common::{Database, ScanQueue};
 use scanner::{AgenticScanner, PackageScanner};
+use std::net::SocketAddr;
 use std::time::Duration;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -23,9 +25,15 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Ensure OpenCode is installed (used for agentic threat detection)
+    // Try to ensure OpenCode is installed (used for agentic threat detection)
+    // If it fails, continue anyway - scans will work without agentic analysis
     tracing::info!("Checking OpenCode installation...");
-    AgenticScanner::ensure_installed().await?;
+    if let Err(e) = AgenticScanner::ensure_installed().await {
+        tracing::warn!(
+            "OpenCode installation failed (agentic analysis will be disabled): {}",
+            e
+        );
+    }
 
     // Database connection
     let database_url = std::env::var("DATABASE_URL")
@@ -46,7 +54,30 @@ async fn main() -> Result<()> {
 
     tracing::info!("Worker started, waiting for jobs...");
 
-    // Main processing loop
+    // Spawn the worker loop in the background
+    tokio::spawn(async move {
+        worker_loop(queue, scanner).await;
+    });
+
+    // Start health check server (required for Cloud Run)
+    let app = Router::new().route("/health", get(health_check));
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8080);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    tracing::info!("Health server listening on {}", addr);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}
+
+async fn health_check() -> Json<serde_json::Value> {
+    Json(serde_json::json!({"status": "ok"}))
+}
+
+async fn worker_loop(queue: ScanQueue, scanner: PackageScanner) {
     loop {
         match queue.pop().await {
             Ok(Some(job)) => {

@@ -5,7 +5,9 @@ mod nvd;
 mod osv;
 
 use anyhow::Result;
+use axum::{routing::get, Json, Router};
 use common::Database;
+use std::net::SocketAddr;
 use std::time::Duration;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -48,7 +50,34 @@ async fn main() -> Result<()> {
 
     tracing::info!("CVE enrichment worker started");
 
-    // Main enrichment loop
+    // Spawn the CVE loop in the background
+    tokio::spawn(async move {
+        cve_loop(osv_client, nvd_client, github_client).await;
+    });
+
+    // Start health check server (required for Cloud Run)
+    let app = Router::new().route("/health", get(health_check));
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8080);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    tracing::info!("Health server listening on {}", addr);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}
+
+async fn health_check() -> Json<serde_json::Value> {
+    Json(serde_json::json!({"status": "ok"}))
+}
+
+async fn cve_loop(
+    osv_client: osv::OsvClient,
+    nvd_client: nvd::NvdClient,
+    github_client: github_advisory::GitHubAdvisoryClient,
+) {
     loop {
         tracing::info!("Starting CVE enrichment cycle");
 

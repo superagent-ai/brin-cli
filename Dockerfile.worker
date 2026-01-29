@@ -25,7 +25,8 @@ RUN cargo build --release --package worker
 # Runtime stage
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates
+# Install ca-certificates, curl, bash (needed for OpenCode installation)
+RUN apk add --no-cache ca-certificates curl bash
 
 WORKDIR /app
 
