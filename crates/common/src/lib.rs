@@ -1,4 +1,4 @@
-//! sus-common: Shared types and utilities for the sus package manager
+//! sus-common: Shared types and utilities for the sus package gateway
 
 pub mod db;
 pub mod models;

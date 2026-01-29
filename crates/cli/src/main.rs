@@ -1,4 +1,4 @@
-//! sus CLI - Security-first package manager for AI agents
+//! sus CLI - Security-first package gateway for AI agents
 
 mod api_client;
 mod commands;
@@ -6,9 +6,17 @@ mod ui;
 
 use clap::{Parser, Subcommand};
 
+const BANNER: &str = r#"
+   ___  __  __  ___
+  / __// / / / / __/
+ _\ \ / /_/ / _\ \ 
+/___/ \____/ /___/ 
+"#;
+
 #[derive(Parser)]
 #[command(name = "sus")]
-#[command(about = "is this package sus? - Security-first package manager for AI agents", long_about = None)]
+#[command(about = "is this package sus? 🔍 security-first package gateway for ai agents")]
+#[command(before_help = BANNER)]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
