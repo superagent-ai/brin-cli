@@ -8,6 +8,7 @@ mod npm;
 use crate::skill_generator::generate_skill_md;
 use anyhow::Result;
 use capabilities::CapabilityExtractor;
+use chrono::{DateTime, Utc};
 use common::{
     db::{NewAgenticThreat, NewPackage, NewPackageCve},
     AgenticThreatSummary, CveSummary, Database, NpmPackageMetadata, PackageCapabilities, RiskLevel,
@@ -289,7 +290,22 @@ impl PackageScanner {
             &usage_docs,
         );
 
-        // 8. Save to database
+        // 8. Fetch additional npm stats (non-blocking)
+        let weekly_downloads = self
+            .npm
+            .fetch_weekly_downloads(package)
+            .await
+            .unwrap_or(None);
+
+        // Extract last publish time from metadata
+        let last_publish: Option<DateTime<Utc>> = metadata
+            .and_then(|m| m.time.as_ref())
+            .and_then(|time| time.get(version))
+            .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
+            .map(|dt| dt.with_timezone(&Utc));
+
+        // 9. Save to database
+        let maintainers_ref = metadata.and_then(|m| m.maintainers.as_ref());
         let package_id = self
             .db
             .upsert_package(&NewPackage {
@@ -299,11 +315,10 @@ impl PackageScanner {
                 risk_reasons: serde_json::to_value(&risk_reasons)?,
                 trust_score: Some(trust_score as i16),
                 publisher_verified: None, // TODO: check npm verified publisher
-                weekly_downloads: None,   // TODO: fetch from npm
-                maintainer_count: metadata
-                    .and_then(|m| m.maintainers.as_ref())
-                    .map(|m| m.len() as i32),
-                last_publish: None,
+                weekly_downloads,
+                maintainer_count: maintainers_ref.map(|m| m.len() as i32),
+                maintainers: maintainers_ref.map(|m| serde_json::to_value(m).unwrap_or_default()),
+                last_publish,
                 capabilities: serde_json::to_value(&capabilities)?,
                 skill_md: Some(skill_md.clone()),
                 scan_version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -377,6 +392,7 @@ mod tests {
             versions: None,
             maintainers: Some(vec![]),
             repository: None,
+            time: None,
         };
         let score = calculate_trust_score(Some(&metadata));
         assert_eq!(score, 40, "0 maintainers should be 50-10=40");
@@ -394,6 +410,7 @@ mod tests {
                 email: None,
             }]),
             repository: None,
+            time: None,
         };
         let score = calculate_trust_score(Some(&metadata));
         assert_eq!(score, 50, "1 maintainer should keep base score 50");
@@ -421,6 +438,7 @@ mod tests {
                 },
             ]),
             repository: None,
+            time: None,
         };
         let score = calculate_trust_score(Some(&metadata));
         assert_eq!(score, 60, "2-5 maintainers should be 50+10=60");
@@ -441,6 +459,7 @@ mod tests {
             versions: None,
             maintainers: Some(maintainers),
             repository: None,
+            time: None,
         };
         let score = calculate_trust_score(Some(&metadata));
         assert_eq!(score, 70, "6+ maintainers should be 50+20=70");
@@ -460,6 +479,7 @@ mod tests {
             repository: Some(
                 serde_json::json!({"type": "git", "url": "https://github.com/test/test"}),
             ),
+            time: None,
         };
         let score = calculate_trust_score(Some(&metadata));
         assert_eq!(score, 65, "1 maintainer + repo + desc should be 50+10+5=65");
@@ -482,6 +502,7 @@ mod tests {
             repository: Some(
                 serde_json::json!({"type": "git", "url": "https://github.com/test/test"}),
             ),
+            time: None,
         };
         let score = calculate_trust_score(Some(&metadata));
         assert!(score <= 100, "Trust score should never exceed 100");

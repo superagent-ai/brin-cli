@@ -70,9 +70,33 @@ impl AgenticScanner {
         Self {}
     }
 
+    /// Get the OpenCode binary path (checks multiple locations)
+    fn opencode_binary() -> String {
+        // Check home directory install first (curl installer puts it here)
+        if let Ok(home) = std::env::var("HOME") {
+            let home_path = format!("{}/.opencode/bin/opencode", home);
+            if std::path::Path::new(&home_path).exists() {
+                return home_path;
+            }
+        }
+
+        // Check common system locations
+        for path in &[
+            "/usr/local/bin/opencode", // npm global install
+            "/usr/bin/opencode",
+        ] {
+            if std::path::Path::new(path).exists() {
+                return path.to_string();
+            }
+        }
+
+        // Fall back to PATH lookup
+        "opencode".to_string()
+    }
+
     /// Check if OpenCode is installed
     pub async fn is_opencode_installed() -> bool {
-        Command::new("opencode")
+        Command::new(Self::opencode_binary())
             .arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -228,10 +252,10 @@ Rules:
     async fn run_opencode(&self, working_dir: &Path, prompt: &str) -> Result<String> {
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(OPENCODE_TIMEOUT_SECS),
-            Command::new("opencode")
+            Command::new(Self::opencode_binary())
                 .arg("run")
                 .arg("-m")
-                .arg("anthropic/claude-opus-4-5")
+                .arg("opencode/kimi-k2.5-free")
                 .arg(prompt)
                 .arg("--format")
                 .arg("json")

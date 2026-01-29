@@ -49,14 +49,13 @@ impl NpmClient {
         }
     }
 
-    /// Fetch package metadata
+    /// Fetch package metadata (full metadata to include maintainers and time)
     pub async fn fetch_metadata(&self, package: &str) -> Result<NpmPackageMetadata> {
         let url = format!("{}/{}", self.registry_url, encode_package_name(package));
 
         let response = self
             .client
             .get(&url)
-            .header("Accept", "application/vnd.npm.install-v1+json")
             .send()
             .await
             .context("Failed to fetch package metadata")?;
@@ -238,6 +237,32 @@ impl NpmClient {
             has_binding_gyp,
             has_napi,
         })
+    }
+
+    /// Fetch weekly download count from npm downloads API
+    pub async fn fetch_weekly_downloads(&self, package: &str) -> Result<Option<i64>> {
+        let url = format!(
+            "https://api.npmjs.org/downloads/point/last-week/{}",
+            encode_package_name(package)
+        );
+
+        let response = self.client.get(&url).send().await;
+
+        match response {
+            Ok(resp) => {
+                if !resp.status().is_success() {
+                    tracing::debug!("Downloads API returned {} for {}", resp.status(), package);
+                    return Ok(None);
+                }
+
+                let json: serde_json::Value = resp.json().await.unwrap_or_default();
+                Ok(json.get("downloads").and_then(|d| d.as_i64()))
+            }
+            Err(e) => {
+                tracing::debug!("Failed to fetch downloads for {}: {}", package, e);
+                Ok(None)
+            }
+        }
     }
 }
 

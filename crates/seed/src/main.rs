@@ -18,11 +18,11 @@ struct Args {
     count: usize,
 
     /// Include AI/agent ecosystem packages
-    #[arg(long, default_value = "true")]
+    #[arg(long)]
     include_ai: bool,
 
     /// Include packages with known CVEs from OSV
-    #[arg(long, default_value = "true")]
+    #[arg(long)]
     include_cves: bool,
 
     /// Scan priority for seeded packages
@@ -178,15 +178,17 @@ async fn main() -> Result<()> {
         println!("   Added {} AI packages", AI_PACKAGES.len());
     }
 
-    // 3. Add packages with known install scripts
-    println!("\n⚠️  Adding packages with install scripts...");
-    for pkg in INSTALL_SCRIPT_PACKAGES {
-        packages.insert(pkg.to_string());
+    // 3. Add packages with known install scripts (only if including AI packages)
+    if args.include_ai {
+        println!("\n⚠️  Adding packages with install scripts...");
+        for pkg in INSTALL_SCRIPT_PACKAGES {
+            packages.insert(pkg.to_string());
+        }
+        println!(
+            "   Added {} install script packages",
+            INSTALL_SCRIPT_PACKAGES.len()
+        );
     }
-    println!(
-        "   Added {} install script packages",
-        INSTALL_SCRIPT_PACKAGES.len()
-    );
 
     // 4. Fetch packages with CVEs
     if args.include_cves {

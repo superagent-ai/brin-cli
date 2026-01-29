@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Risk level assessment for a package
@@ -319,6 +320,8 @@ pub struct NpmPackageMetadata {
     pub versions: Option<serde_json::Value>,
     pub maintainers: Option<Vec<NpmMaintainer>>,
     pub repository: Option<serde_json::Value>,
+    /// Publish timestamps for each version (version -> ISO timestamp)
+    pub time: Option<HashMap<String, String>>,
 }
 
 /// npm maintainer info

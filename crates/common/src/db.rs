@@ -101,9 +101,9 @@ impl Database {
         let row = sqlx::query_scalar::<_, i32>(
             r#"
             INSERT INTO packages (name, version, risk_level, risk_reasons, trust_score, 
-                publisher_verified, weekly_downloads, maintainer_count, last_publish, 
+                publisher_verified, weekly_downloads, maintainer_count, maintainers, last_publish, 
                 capabilities, skill_md, scan_version)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT (name, version) DO UPDATE SET
                 risk_level = EXCLUDED.risk_level,
                 risk_reasons = EXCLUDED.risk_reasons,
@@ -111,6 +111,7 @@ impl Database {
                 publisher_verified = EXCLUDED.publisher_verified,
                 weekly_downloads = EXCLUDED.weekly_downloads,
                 maintainer_count = EXCLUDED.maintainer_count,
+                maintainers = EXCLUDED.maintainers,
                 last_publish = EXCLUDED.last_publish,
                 capabilities = EXCLUDED.capabilities,
                 skill_md = EXCLUDED.skill_md,
@@ -127,6 +128,7 @@ impl Database {
         .bind(package.publisher_verified)
         .bind(package.weekly_downloads)
         .bind(package.maintainer_count)
+        .bind(&package.maintainers)
         .bind(package.last_publish)
         .bind(&package.capabilities)
         .bind(&package.skill_md)
@@ -240,6 +242,7 @@ pub struct NewPackage {
     pub publisher_verified: Option<bool>,
     pub weekly_downloads: Option<i64>,
     pub maintainer_count: Option<i32>,
+    pub maintainers: Option<serde_json::Value>,
     pub last_publish: Option<chrono::DateTime<chrono::Utc>>,
     pub capabilities: serde_json::Value,
     pub skill_md: Option<String>,

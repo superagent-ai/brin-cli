@@ -78,7 +78,9 @@ async fn health_check() -> Json<serde_json::Value> {
 }
 
 async fn worker_loop(queue: ScanQueue, scanner: PackageScanner) {
+    tracing::info!("Worker loop starting...");
     loop {
+        tracing::debug!("Polling queue for jobs...");
         match queue.pop().await {
             Ok(Some(job)) => {
                 let _is_tarball = job.tarball_path.is_some();
