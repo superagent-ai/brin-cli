@@ -207,6 +207,26 @@ impl Database {
         }
         Ok(results)
     }
+
+    /// Check if a package (any version) exists in the database
+    pub async fn package_exists(&self, name: &str) -> Result<bool> {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM packages WHERE name = $1)")
+                .bind(name)
+                .fetch_one(&self.pool)
+                .await?;
+
+        Ok(exists)
+    }
+
+    /// Get all unique package names in the database (for caching)
+    pub async fn get_all_package_names(&self) -> Result<Vec<String>> {
+        let names: Vec<String> = sqlx::query_scalar("SELECT DISTINCT name FROM packages")
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(names)
+    }
 }
 
 /// New package for insertion
