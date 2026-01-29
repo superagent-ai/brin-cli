@@ -5,6 +5,7 @@
 package gateway for ai agents — detects malware, cves, prompt injection, and generates usage docs for your dependencies.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Backed by Y Combinator](https://img.shields.io/badge/Backed%20by-Y%20Combinator-orange)](https://www.ycombinator.com)
 
 ---
 
