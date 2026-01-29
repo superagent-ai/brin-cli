@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/sus-cli",
-    "crates/sus-api",
-    "crates/sus-worker",
-    "crates/sus-watcher",
-    "crates/sus-cve",
-    "crates/sus-common",
+    "crates/cli",
+    "crates/api",
+    "crates/worker",
+    "crates/watcher",
+    "crates/cve",
+    "crates/common",
 ]
 
 [workspace.package]
@@ -61,4 +61,4 @@ async-trait = "0.1"
 urlencoding = "2.1"
 
 # Internal crates
-sus-common = { path = "crates/sus-common" }
+common = { path = "crates/common" }

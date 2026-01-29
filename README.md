@@ -30,7 +30,7 @@ your agent doesn't know. **sus does.**
 ## install
 
 ```bash
-curl -fsSL https://sus.dev/install.sh | sh
+curl -fsSL https://sus-pm.com/install.sh | sh
 ```
 
 or with cargo:
@@ -163,7 +163,7 @@ each skill includes quick start examples, best practices, gotchas, and capabilit
 │  • trust signals (downloads, maintainers)   │
 │                                             │
 │  stores results in database                 │
-│  serves via api.sus.dev                     │
+│  serves via api.sus-pm.com                  │
 └─────────────────────────────────────────────┘
                       │
                       ▼
@@ -171,7 +171,7 @@ each skill includes quick start examples, best practices, gotchas, and capabilit
 │              sus cli (your machine)         │
 ├─────────────────────────────────────────────┤
 │  sus add express                            │
-│    → GET api.sus.dev/v1/packages/express    │
+│    → GET api.sus-pm.com/v1/packages/express │
 │    → get pre-computed risk assessment       │
 │    → install if safe                        │
 │    → generate agent skills                  │
@@ -200,7 +200,7 @@ or integrate via api:
 import requests
 
 def is_safe(package: str) -> bool:
-    r = requests.get(f"https://api.sus.dev/v1/packages/{package}")
+    r = requests.get(f"https://api.sus-pm.com/v1/packages/{package}")
     data = r.json()
     return data["risk_level"] == "clean"
 ```
