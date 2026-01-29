@@ -13,15 +13,6 @@ const STATE_FILE: &str = ".sus-watcher-seq";
 pub struct PackageChange {
     pub name: String,
     pub version: Option<String>,
-    pub change_type: ChangeType,
-}
-
-/// Type of change
-#[derive(Debug, Clone, Copy)]
-pub enum ChangeType {
-    New,
-    Update,
-    Unpublish,
 }
 
 /// Response from CouchDB changes feed
@@ -34,14 +25,7 @@ struct ChangesResponse {
 #[derive(Deserialize)]
 struct ChangeResult {
     id: String,
-    seq: serde_json::Value,
     deleted: Option<bool>,
-    changes: Vec<ChangeRevision>,
-}
-
-#[derive(Deserialize)]
-struct ChangeRevision {
-    rev: String,
 }
 
 /// npm registry watcher
@@ -105,34 +89,14 @@ impl NpmWatcher {
             }
         }
 
-        // Convert to PackageChange
+        // Convert to PackageChange (skip design documents and deleted packages)
         let changes: Vec<PackageChange> = changes_response
             .results
             .into_iter()
-            .filter_map(|result| {
-                // Skip design documents
-                if result.id.starts_with('_') {
-                    return None;
-                }
-
-                let change_type = if result.deleted.unwrap_or(false) {
-                    ChangeType::Unpublish
-                } else if result
-                    .changes
-                    .first()
-                    .map(|c| c.rev.starts_with("1-"))
-                    .unwrap_or(false)
-                {
-                    ChangeType::New
-                } else {
-                    ChangeType::Update
-                };
-
-                Some(PackageChange {
-                    name: result.id,
-                    version: None, // We'd need to fetch the doc to get the version
-                    change_type,
-                })
+            .filter(|result| !result.id.starts_with('_') && !result.deleted.unwrap_or(false))
+            .map(|result| PackageChange {
+                name: result.id,
+                version: None, // We'd need to fetch the doc to get the version
             })
             .collect();
 
@@ -140,6 +104,7 @@ impl NpmWatcher {
     }
 
     /// Get the current sequence number
+    #[allow(dead_code)]
     pub fn current_seq(&self) -> u64 {
         self.last_seq.load(Ordering::Relaxed)
     }

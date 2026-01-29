@@ -17,8 +17,6 @@ const OPENCODE_TIMEOUT_SECS: u64 = 300;
 struct OpenCodeThreatReport {
     #[serde(default)]
     threats: Vec<OpenCodeThreat>,
-    #[serde(default)]
-    summary: Option<String>,
 }
 
 /// Individual threat from OpenCode analysis
@@ -27,13 +25,9 @@ struct OpenCodeThreat {
     #[serde(alias = "type", alias = "threat_type")]
     threat_type: String,
     #[serde(default)]
-    severity: Option<String>,
-    #[serde(default)]
     confidence: Option<f32>,
     #[serde(default)]
     location: Option<String>,
-    #[serde(default)]
-    description: Option<String>,
     #[serde(default)]
     snippet: Option<String>,
 }

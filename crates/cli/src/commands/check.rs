@@ -7,8 +7,8 @@ use colored::Colorize;
 
 /// Parse a package string into name and optional version
 fn parse_package_spec(spec: &str) -> (&str, Option<&str>) {
-    if spec.starts_with('@') {
-        if let Some(idx) = spec[1..].find('@') {
+    if let Some(rest) = spec.strip_prefix('@') {
+        if let Some(idx) = rest.find('@') {
             let idx = idx + 1;
             return (&spec[..idx], Some(&spec[idx + 1..]));
         }

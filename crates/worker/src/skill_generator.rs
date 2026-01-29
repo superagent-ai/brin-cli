@@ -124,7 +124,7 @@ pub fn generate_skill_md(
         for practice in &usage_docs.best_practices {
             md.push_str(&format!("- {}\n", practice));
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     // Common Patterns
@@ -133,7 +133,7 @@ pub fn generate_skill_md(
         for pattern in &usage_docs.common_patterns {
             md.push_str(&format!("- {}\n", pattern));
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     // Gotchas
@@ -142,7 +142,7 @@ pub fn generate_skill_md(
         for gotcha in &usage_docs.gotchas {
             md.push_str(&format!("- {}\n", gotcha));
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     // Capabilities
@@ -220,7 +220,7 @@ pub fn generate_skill_md(
         for reason in risk_reasons {
             md.push_str(&format!("- {}\n", reason));
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     md

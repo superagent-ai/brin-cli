@@ -236,7 +236,7 @@ pub fn print_capabilities(assessment: &PackageResponse) {
     }
 
     println!();
-    println!("   {} capabilities:", "📋");
+    println!("   📋 capabilities:");
 
     if caps.network.makes_requests {
         print!("   ├─ 🌐 network");

@@ -35,8 +35,6 @@ struct OsvVulnerability {
 
 #[derive(Deserialize)]
 struct OsvSeverity {
-    #[serde(rename = "type")]
-    severity_type: Option<String>,
     score: Option<String>,
 }
 
@@ -47,14 +45,11 @@ struct OsvAffected {
 
 #[derive(Deserialize)]
 struct OsvRange {
-    #[serde(rename = "type")]
-    range_type: Option<String>,
     events: Option<Vec<OsvEvent>>,
 }
 
 #[derive(Deserialize)]
 struct OsvEvent {
-    introduced: Option<String>,
     fixed: Option<String>,
 }
 

@@ -9,6 +9,7 @@ const NVD_API_URL: &str = "https://services.nvd.nist.gov/rest/json/cves/2.0";
 
 /// NVD CVE entry
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct NvdCve {
     pub id: String,
     #[serde(rename = "sourceIdentifier")]
@@ -23,12 +24,14 @@ pub struct NvdCve {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct NvdDescription {
     pub lang: String,
     pub value: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct NvdMetrics {
     #[serde(rename = "cvssMetricV31")]
     pub cvss_v31: Option<Vec<CvssMetric>>,
@@ -39,12 +42,14 @@ pub struct NvdMetrics {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct CvssMetric {
     #[serde(rename = "cvssData")]
     pub cvss_data: Option<CvssData>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct CvssData {
     #[serde(rename = "baseScore")]
     pub base_score: Option<f32>,
@@ -54,6 +59,7 @@ pub struct CvssData {
 
 /// NVD API response
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct NvdResponse {
     vulnerabilities: Option<Vec<NvdVulnerability>>,
     #[serde(rename = "resultsPerPage")]

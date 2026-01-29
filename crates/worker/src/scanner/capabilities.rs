@@ -3,8 +3,8 @@
 use super::npm::ExtractedPackage;
 use anyhow::Result;
 use common::{
-    EnvironmentCapabilities, FilesystemCapabilities, NativeCapabilities, NetworkCapabilities,
-    PackageCapabilities, PathPermission, ProcessCapabilities,
+    EnvironmentCapabilities, FilesystemCapabilities, NetworkCapabilities, PackageCapabilities,
+    PathPermission, ProcessCapabilities,
 };
 
 /// Known native npm modules
@@ -335,7 +335,7 @@ impl CapabilityExtractor {
 
         // Also check for bracket notation: process.env["VAR"] or process.env['VAR']
         for quote in ['"', '\''] {
-            let pattern = format!("process.env[{}]", quote);
+            let _pattern = format!("process.env[{}]", quote);
             let mut search_from = 0;
 
             while let Some(start) = source[search_from..].find(&format!("process.env[{}", quote)) {

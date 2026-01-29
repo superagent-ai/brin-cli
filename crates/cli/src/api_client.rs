@@ -127,6 +127,7 @@ impl SusClient {
     }
 
     /// Check if API is reachable
+    #[allow(dead_code)]
     pub async fn health_check(&self) -> Result<bool> {
         let url = format!("{}/health", self.base_url);
 

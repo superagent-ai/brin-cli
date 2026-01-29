@@ -10,12 +10,11 @@ use tempfile::TempDir;
 
 /// Extracted package contents
 pub struct ExtractedPackage {
-    /// Temporary directory containing extracted files
+    /// Temporary directory containing extracted files (must keep for ownership)
+    #[allow(dead_code)]
     pub dir: TempDir,
     /// Path to package root
     pub root: PathBuf,
-    /// README content if present
-    pub readme: Option<String>,
     /// package.json content
     pub package_json: serde_json::Value,
     /// Source files (.js, .ts, .mjs, .cjs)
@@ -24,23 +23,11 @@ pub struct ExtractedPackage {
     pub has_binding_gyp: bool,
     /// Has N-API binding
     pub has_napi: bool,
-    /// Install scripts from package.json
-    pub scripts: PackageScripts,
 }
 
 /// A source file
 pub struct SourceFile {
-    pub path: String,
     pub content: String,
-}
-
-/// Package scripts
-#[derive(Default)]
-pub struct PackageScripts {
-    pub preinstall: Option<String>,
-    pub install: Option<String>,
-    pub postinstall: Option<String>,
-    pub prepare: Option<String>,
 }
 
 /// Client for npm registry
@@ -156,41 +143,12 @@ impl NpmClient {
         // npm tarballs have a "package" folder inside
         let root = dir.path().join("package");
 
-        // Read README
-        let readme = try_read_file(&root.join("README.md"))
-            .or_else(|| try_read_file(&root.join("readme.md")))
-            .or_else(|| try_read_file(&root.join("Readme.md")));
-
         // Read package.json
         let package_json_path = root.join("package.json");
         let package_json: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(&package_json_path).context("Failed to read package.json")?,
         )
         .context("Failed to parse package.json")?;
-
-        // Extract scripts
-        let scripts = PackageScripts {
-            preinstall: package_json
-                .get("scripts")
-                .and_then(|s| s.get("preinstall"))
-                .and_then(|s| s.as_str())
-                .map(String::from),
-            install: package_json
-                .get("scripts")
-                .and_then(|s| s.get("install"))
-                .and_then(|s| s.as_str())
-                .map(String::from),
-            postinstall: package_json
-                .get("scripts")
-                .and_then(|s| s.get("postinstall"))
-                .and_then(|s| s.as_str())
-                .map(String::from),
-            prepare: package_json
-                .get("scripts")
-                .and_then(|s| s.get("prepare"))
-                .and_then(|s| s.as_str())
-                .map(String::from),
-        };
 
         // Check for native modules
         let has_binding_gyp = root.join("binding.gyp").exists();
@@ -206,12 +164,10 @@ impl NpmClient {
         Ok(ExtractedPackage {
             dir,
             root,
-            readme,
             package_json,
             source_files,
             has_binding_gyp,
             has_napi,
-            scripts,
         })
     }
 
@@ -256,41 +212,12 @@ impl NpmClient {
                 .unwrap_or_else(|| dir.path().to_path_buf())
         };
 
-        // Read README
-        let readme = try_read_file(&root.join("README.md"))
-            .or_else(|| try_read_file(&root.join("readme.md")))
-            .or_else(|| try_read_file(&root.join("Readme.md")));
-
         // Read package.json
         let package_json_path = root.join("package.json");
         let package_json: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(&package_json_path).context("Failed to read package.json")?,
         )
         .context("Failed to parse package.json")?;
-
-        // Extract scripts
-        let scripts = PackageScripts {
-            preinstall: package_json
-                .get("scripts")
-                .and_then(|s| s.get("preinstall"))
-                .and_then(|s| s.as_str())
-                .map(String::from),
-            install: package_json
-                .get("scripts")
-                .and_then(|s| s.get("install"))
-                .and_then(|s| s.as_str())
-                .map(String::from),
-            postinstall: package_json
-                .get("scripts")
-                .and_then(|s| s.get("postinstall"))
-                .and_then(|s| s.as_str())
-                .map(String::from),
-            prepare: package_json
-                .get("scripts")
-                .and_then(|s| s.get("prepare"))
-                .and_then(|s| s.as_str())
-                .map(String::from),
-        };
 
         // Check for native modules
         let has_binding_gyp = root.join("binding.gyp").exists();
@@ -306,12 +233,10 @@ impl NpmClient {
         Ok(ExtractedPackage {
             dir,
             root,
-            readme,
             package_json,
             source_files,
             has_binding_gyp,
             has_napi,
-            scripts,
         })
     }
 }
@@ -325,16 +250,11 @@ fn encode_package_name(name: &str) -> String {
     }
 }
 
-/// Try to read a file, returning None on failure
-fn try_read_file(path: &std::path::Path) -> Option<String> {
-    std::fs::read_to_string(path).ok()
-}
-
 /// Collect JavaScript/TypeScript source files from the package
 fn collect_source_files(root: &std::path::Path) -> Result<Vec<SourceFile>> {
     let mut files = Vec::new();
 
-    fn visit_dir(dir: &std::path::Path, root: &std::path::Path, files: &mut Vec<SourceFile>) {
+    fn visit_dir(dir: &std::path::Path, files: &mut Vec<SourceFile>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
@@ -350,7 +270,7 @@ fn collect_source_files(root: &std::path::Path) -> Result<Vec<SourceFile>> {
             }
 
             if path.is_dir() {
-                visit_dir(&path, root, files);
+                visit_dir(&path, files);
             } else if path.is_file() {
                 // Check if it's a JS/TS file
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -363,15 +283,7 @@ fn collect_source_files(root: &std::path::Path) -> Result<Vec<SourceFile>> {
                         if metadata.len() < 1_000_000 {
                             // 1MB limit
                             if let Ok(content) = std::fs::read_to_string(&path) {
-                                let relative_path = path
-                                    .strip_prefix(root)
-                                    .unwrap_or(&path)
-                                    .to_string_lossy()
-                                    .to_string();
-                                files.push(SourceFile {
-                                    path: relative_path,
-                                    content,
-                                });
+                                files.push(SourceFile { content });
                             }
                         }
                     }
@@ -380,7 +292,7 @@ fn collect_source_files(root: &std::path::Path) -> Result<Vec<SourceFile>> {
         }
     }
 
-    visit_dir(root, root, &mut files);
+    visit_dir(root, &mut files);
 
     Ok(files)
 }

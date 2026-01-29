@@ -8,6 +8,7 @@ const OSV_API_URL: &str = "https://api.osv.dev/v1";
 
 /// An OSV advisory
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct OsvAdvisory {
     pub id: String,
     pub summary: Option<String>,
@@ -20,6 +21,7 @@ pub struct OsvAdvisory {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct OsvSeverity {
     #[serde(rename = "type")]
     pub severity_type: Option<String>,
@@ -27,6 +29,7 @@ pub struct OsvSeverity {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct OsvAffected {
     pub package: Option<OsvPackage>,
     pub ranges: Option<Vec<OsvRange>>,
@@ -34,12 +37,14 @@ pub struct OsvAffected {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct OsvPackage {
     pub ecosystem: Option<String>,
     pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct OsvRange {
     #[serde(rename = "type")]
     pub range_type: Option<String>,
@@ -47,6 +52,7 @@ pub struct OsvRange {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct OsvEvent {
     pub introduced: Option<String>,
     pub fixed: Option<String>,
@@ -54,6 +60,7 @@ pub struct OsvEvent {
 
 /// Response from OSV query all endpoint
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct OsvQueryAllResponse {
     vulns: Option<Vec<OsvAdvisory>>,
     next_page_token: Option<String>,
@@ -149,6 +156,7 @@ impl OsvClient {
     }
 
     /// Query vulnerabilities for a specific package
+    #[allow(dead_code)]
     pub async fn query_package(&self, name: &str, version: &str) -> Result<Vec<OsvAdvisory>> {
         let url = format!("{}/query", OSV_API_URL);
 

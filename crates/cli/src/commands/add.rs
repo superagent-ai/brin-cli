@@ -11,10 +11,10 @@ use std::process::Command;
 /// Parse a package string into name and optional version
 fn parse_package_spec(spec: &str) -> (&str, Option<&str>) {
     // Handle scoped packages like @types/node@1.0.0
-    if spec.starts_with('@') {
+    if let Some(rest) = spec.strip_prefix('@') {
         // Find the second @ for version
-        if let Some(idx) = spec[1..].find('@') {
-            let idx = idx + 1; // Adjust for the slice offset
+        if let Some(idx) = rest.find('@') {
+            let idx = idx + 1; // Adjust for the @ prefix
             return (&spec[..idx], Some(&spec[idx + 1..]));
         }
         return (spec, None);

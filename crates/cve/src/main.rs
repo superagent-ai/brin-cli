@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "postgres://sus:sus@localhost:5432/sus".to_string());
 
     tracing::info!("Connecting to database...");
-    let db = Database::new(&database_url).await?;
+    let _db = Database::new(&database_url).await?;
 
     // API keys
     let nvd_api_key = std::env::var("NVD_API_KEY").ok();

@@ -8,6 +8,7 @@ const GITHUB_GRAPHQL_URL: &str = "https://api.github.com/graphql";
 
 /// GitHub Advisory
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct GitHubAdvisory {
     pub ghsa_id: String,
     pub cve_id: Option<String>,
@@ -21,6 +22,7 @@ pub struct GitHubAdvisory {
 
 /// Vulnerability info from GitHub
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct GitHubVulnerability {
     pub package_name: String,
     pub vulnerable_version_range: String,

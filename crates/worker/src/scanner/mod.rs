@@ -137,6 +137,7 @@ pub fn calculate_risk(
 }
 
 /// Result of scanning a package
+#[allow(dead_code)]
 pub struct ScanResult {
     pub package: String,
     pub version: String,
@@ -242,12 +243,12 @@ impl PackageScanner {
         package: &str,
         version: &str,
         metadata: Option<&common::NpmPackageMetadata>,
-        version_info: Option<&common::NpmVersionInfo>,
+        _version_info: Option<&common::NpmVersionInfo>,
         extracted: npm::ExtractedPackage,
     ) -> Result<ScanResult> {
         // 4. Run all analyses in parallel
         let (cves, agentic_threats, capabilities, usage_docs) = tokio::join!(
-            self.cve_scanner.scan(package, &version),
+            self.cve_scanner.scan(package, version),
             self.agentic_scanner.scan(&extracted),
             async { self.capability_extractor.extract(&extracted) },
             self.agentic_scanner

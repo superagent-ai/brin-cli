@@ -476,7 +476,7 @@ mod tests {
             .map(|v| v.to_str().unwrap_or(""));
 
         assert!(
-            content_type.map_or(false, |ct| ct.contains("application/json")),
+            content_type.is_some_and(|ct| ct.contains("application/json")),
             "Content-Type should be application/json"
         );
     }
