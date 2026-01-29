@@ -2,15 +2,15 @@
   <img src="assets/logo.png" alt="sus" height="120">
 </p>
 
-<h1 align="center">sus</h1>
+<h1>sus</h1>
 
-<p align="center">
+<p>
   <strong>is this package sus?</strong> 🔍
   <br>
   package gateway for ai agents — detects malware, cves, prompt injection, and generates usage docs for your dependencies.
 </p>
 
-<p align="center">
+<p>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   &nbsp;
   <a href="https://www.ycombinator.com"><img src="https://img.shields.io/badge/Backed%20by-Y%20Combinator-orange" alt="Backed by Y Combinator"></a>
