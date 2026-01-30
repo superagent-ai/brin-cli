@@ -46,12 +46,6 @@ your agent doesn't know. **sus does.**
 curl -fsSL https://sus-pm.com/install.sh | sh
 ```
 
-or with cargo:
-
-```bash
-cargo install sus
-```
-
 ---
 
 ## usage
