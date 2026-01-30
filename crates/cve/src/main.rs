@@ -27,12 +27,37 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Database connection
+    // Start health check server FIRST (required for Cloud Run)
+    let app = Router::new().route("/health", get(health_check));
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8080);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    tracing::info!("Health server listening on {}", addr);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    // Spawn health server in background
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, app).await {
+            tracing::error!("Health server error: {}", e);
+        }
+    });
+
+    // Now connect to database (with retries)
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://sus:sus@localhost:5432/sus".to_string());
 
-    tracing::info!("Connecting to database...");
-    let db = Arc::new(Database::new(&database_url).await?);
+    let db = loop {
+        tracing::info!("Connecting to database...");
+        match Database::new(&database_url).await {
+            Ok(db) => break Arc::new(db),
+            Err(e) => {
+                tracing::warn!("Database connection failed: {}, retrying in 5s...", e);
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    };
 
     // API keys (NVD disabled - requires paid API key)
     let github_token = std::env::var("GITHUB_TOKEN").ok().filter(|s| !s.is_empty());
@@ -47,22 +72,8 @@ async fn main() -> Result<()> {
 
     tracing::info!("CVE enrichment worker started");
 
-    // Spawn the CVE loop in the background
-    let db_clone = Arc::clone(&db);
-    tokio::spawn(async move {
-        cve_loop(db_clone, osv_client, github_client).await;
-    });
-
-    // Start health check server (required for Cloud Run)
-    let app = Router::new().route("/health", get(health_check));
-    let port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(8080);
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    tracing::info!("Health server listening on {}", addr);
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    // Run the CVE loop (blocking)
+    cve_loop(db, osv_client, github_client).await;
 
     Ok(())
 }
