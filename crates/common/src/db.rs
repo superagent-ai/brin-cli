@@ -139,12 +139,17 @@ impl Database {
         Ok(row)
     }
 
-    /// Insert a CVE for a package
+    /// Insert a CVE for a package (upsert to avoid duplicates)
     pub async fn insert_cve(&self, cve: &NewPackageCve) -> Result<i32> {
         let id = sqlx::query_scalar::<_, i32>(
             r#"
             INSERT INTO package_cves (package_id, cve_id, severity, description, fixed_in, published_at)
             VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (package_id, cve_id) DO UPDATE SET
+                severity = EXCLUDED.severity,
+                description = EXCLUDED.description,
+                fixed_in = EXCLUDED.fixed_in,
+                published_at = EXCLUDED.published_at
             RETURNING id
             "#,
         )
@@ -228,6 +233,23 @@ impl Database {
             .await?;
 
         Ok(names)
+    }
+
+    /// Get all packages from the database
+    pub async fn get_all_packages(&self) -> Result<Vec<Package>> {
+        let packages: Vec<Package> = sqlx::query_as(
+            r#"
+            SELECT id, name, version, risk_level, risk_reasons, trust_score,
+                   publisher_verified, weekly_downloads, maintainer_count,
+                   last_publish, capabilities, skill_md, scanned_at, scan_version
+            FROM packages
+            ORDER BY name, version
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(packages)
     }
 }
 
