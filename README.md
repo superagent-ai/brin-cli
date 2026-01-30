@@ -251,6 +251,16 @@ make dev-worker         # worker only
 
 requires docker for postgres/redis. set `ANTHROPIC_API_KEY` in `.env` for agentic analysis.
 
+### seeding packages
+
+```bash
+# seed top N packages from npm
+cargo run --bin seed -- --count 1000
+
+# for production (uses .env.production)
+set -a; source .env.production; set +a && cargo run --bin seed -- --count 1000
+```
+
 ---
 
 ## contributing
