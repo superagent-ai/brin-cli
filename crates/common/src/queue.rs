@@ -60,7 +60,13 @@ impl ScanQueue {
 
     /// Pop the highest priority job
     pub async fn pop(&self) -> Result<Option<ScanJob>> {
-        let mut conn = self.pool.get().await?;
+        let mut conn = match self.pool.get().await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("Failed to get Redis connection: {}", e);
+                return Err(e.into());
+            }
+        };
 
         // Try each priority level from highest to lowest
         for priority in [
@@ -71,18 +77,29 @@ impl ScanQueue {
         ] {
             let queue_key = self.queue_key_for_priority(priority);
 
+            // Check queue length first
+            let queue_len: usize = conn.zcard(&queue_key).await.unwrap_or(0);
+            if queue_len > 0 {
+                tracing::debug!("Queue {} has {} items", queue_key, queue_len);
+            }
+
             // Pop from sorted set (ZPOPMIN returns lowest score first, which is oldest)
-            let result: Option<(String, f64)> =
-                conn.zpopmin(&queue_key, 1)
-                    .await
-                    .ok()
-                    .and_then(|v: Vec<(String, f64)>| {
-                        if v.is_empty() {
-                            None
-                        } else {
-                            Some(v.into_iter().next().unwrap())
-                        }
-                    });
+            let zpop_result: Result<Vec<(String, f64)>, _> = conn.zpopmin(&queue_key, 1).await;
+
+            let result: Option<(String, f64)> = match zpop_result {
+                Ok(v) => {
+                    if v.is_empty() {
+                        None
+                    } else {
+                        tracing::debug!("ZPOPMIN returned {} items from {}", v.len(), queue_key);
+                        Some(v.into_iter().next().unwrap())
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("ZPOPMIN failed for {}: {}", queue_key, e);
+                    None
+                }
+            };
 
             if let Some((job_id, _)) = result {
                 // Fetch job data

@@ -25,18 +25,24 @@ RUN cargo build --release --package worker
 # Runtime stage
 FROM alpine:3.20
 
-# Install ca-certificates, curl, bash (needed for OpenCode installation)
-RUN apk add --no-cache ca-certificates curl bash
+# Install ca-certificates, curl, bash, and C++ runtime libs (needed by OpenCode)
+RUN apk add --no-cache ca-certificates curl bash libstdc++ libgcc
 
 WORKDIR /app
 
 # Copy binary
 COPY --from=builder /app/target/release/sus-worker /usr/local/bin/
 
-# Create non-root user
+# Create non-root user and install OpenCode as that user
 RUN adduser -D -u 1000 sus
-USER sus
 
+# Install OpenCode as sus user (installs to ~/.opencode/bin/)
+USER sus
+RUN curl -fsSL https://opencode.ai/install | bash
+
+# Explicitly set HOME and PATH for Cloud Run
+ENV HOME="/home/sus"
+ENV PATH="/home/sus/.opencode/bin:/usr/local/bin:/usr/bin:/bin"
 ENV RUST_LOG=info
 
 CMD ["sus-worker"]

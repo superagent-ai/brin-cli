@@ -199,28 +199,7 @@ all the heavy lifting (ml inference, ast analysis, cve correlation) happens on o
 
 if you're building an agent that installs packages, sus is for you.
 
-```python
-# instead of
-subprocess.run(["npm", "install", package])
-
-# use
-subprocess.run(["sus", "add", package, "--strict"])
-```
-
-or integrate via api:
-
-```python
-import requests
-
-def is_safe(package: str) -> bool:
-    r = requests.get(f"https://api.sus-pm.com/v1/packages/{package}")
-    data = r.json()
-    return data["risk_level"] == "clean"
-```
-
-### integrations
-
-- **[Cursor](https://www.sus-pm.com/docs/guides/cursor)** — hooks for automatic package scanning
+- **[Cursor](https://www.sus-pm.com/docs/guides/cursor)**
 - **[Claude Code](https://www.sus-pm.com/docs/guides/claude-code)**
 - **[OpenCode](https://www.sus-pm.com/docs/guides/opencode)**
 - **[Gemini CLI](https://www.sus-pm.com/docs/guides/gemini-cli)**
@@ -271,6 +250,16 @@ make dev-worker         # worker only
 ```
 
 requires docker for postgres/redis. set `ANTHROPIC_API_KEY` in `.env` for agentic analysis.
+
+### seeding packages
+
+```bash
+# seed top N packages from npm
+cargo run --bin seed -- --count 1000
+
+# for production (uses .env.production)
+set -a; source .env.production; set +a && cargo run --bin seed -- --count 1000
+```
 
 ---
 

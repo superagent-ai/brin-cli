@@ -82,77 +82,130 @@ impl OsvClient {
         }
     }
 
-    /// Fetch all npm advisories from OSV
-    pub async fn fetch_npm_advisories(&self) -> Result<Vec<OsvAdvisory>> {
+    /// Fetch advisories for a list of npm packages from OSV
+    pub async fn fetch_advisories_for_packages(
+        &self,
+        packages: &[(String, String)], // (name, version) pairs
+    ) -> Result<Vec<OsvAdvisory>> {
+        if packages.is_empty() {
+            return Ok(vec![]);
+        }
+
         let mut all_advisories = Vec::new();
-        let mut page_token: Option<String> = None;
+        let mut seen_ids = std::collections::HashSet::new();
 
-        loop {
+        // Filter out invalid packages and process in batches of 100 (OSV limit)
+        let valid_packages: Vec<_> = packages
+            .iter()
+            .filter(|(name, version)| !name.is_empty() && !version.is_empty())
+            .collect();
+
+        for chunk in valid_packages.chunks(100) {
+            let queries: Vec<serde_json::Value> = chunk
+                .iter()
+                .map(|(name, version)| {
+                    serde_json::json!({
+                        "package": {
+                            "name": name,
+                            "ecosystem": "npm"
+                        },
+                        "version": version
+                    })
+                })
+                .collect();
+
             let url = format!("{}/querybatch", OSV_API_URL);
+            let request_body = serde_json::json!({ "queries": queries });
 
-            let mut request_body = serde_json::json!({
-                "queries": [{
-                    "package": {
-                        "ecosystem": "npm"
-                    }
-                }]
-            });
+            tracing::debug!("OSV querybatch request for {} packages", chunk.len());
 
-            if let Some(token) = &page_token {
-                request_body["page_token"] = serde_json::json!(token);
+            let response = match self.client.post(&url).json(&request_body).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("OSV querybatch request failed: {}", e);
+                    continue;
+                }
+            };
+
+            let status = response.status();
+            if !status.is_success() {
+                let body = response.text().await.unwrap_or_default();
+                tracing::warn!("OSV querybatch failed: {} - {}", status, body);
+                // If we get a 400, log the request for debugging
+                if status.as_u16() == 400 {
+                    tracing::debug!(
+                        "OSV request body: {}",
+                        serde_json::to_string_pretty(&request_body).unwrap_or_default()
+                    );
+                }
+                continue;
             }
 
-            let response = self.client.post(&url).json(&request_body).send().await?;
+            let batch_response: serde_json::Value = match response.json().await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("OSV querybatch response parse failed: {}", e);
+                    continue;
+                }
+            };
 
-            if !response.status().is_success() {
-                tracing::warn!(
-                    "OSV querybatch failed: {} - {}",
-                    response.status(),
-                    response.text().await.unwrap_or_default()
-                );
-                break;
-            }
+            // Extract results from each query
+            if let Some(results) = batch_response.get("results").and_then(|r| r.as_array()) {
+                for (i, result) in results.iter().enumerate() {
+                    if let Some(vulns) = result.get("vulns").and_then(|v| v.as_array()) {
+                        // Log which package had vulnerabilities
+                        if i < chunk.len() && !vulns.is_empty() {
+                            let (name, _) = &chunk[i];
+                            tracing::info!("Found {} OSV advisories for {}", vulns.len(), name);
+                        }
 
-            let batch_response: serde_json::Value = response.json().await?;
-
-            // Extract results from first query
-            if let Some(results) = batch_response
-                .get("results")
-                .and_then(|r| r.as_array())
-                .and_then(|arr| arr.first())
-            {
-                if let Some(vulns) = results.get("vulns").and_then(|v| v.as_array()) {
-                    for vuln in vulns {
-                        if let Ok(advisory) = serde_json::from_value::<OsvAdvisory>(vuln.clone()) {
-                            all_advisories.push(advisory);
+                        for vuln in vulns {
+                            // Fetch full advisory details (dedupe by ID)
+                            if let Some(vuln_id) = vuln.get("id").and_then(|id| id.as_str()) {
+                                if seen_ids.insert(vuln_id.to_string()) {
+                                    match self.fetch_advisory(vuln_id).await {
+                                        Ok(advisory) => all_advisories.push(advisory),
+                                        Err(e) => tracing::debug!(
+                                            "Failed to fetch advisory {}: {}",
+                                            vuln_id,
+                                            e
+                                        ),
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-
-                page_token = results
-                    .get("next_page_token")
-                    .and_then(|t| t.as_str())
-                    .map(String::from);
-            } else {
-                break;
-            }
-
-            // Stop if no more pages
-            if page_token.is_none() {
-                break;
             }
 
             // Rate limiting
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-            // Limit total pages to avoid very long runs
-            if all_advisories.len() > 10000 {
-                tracing::warn!("Reached advisory limit, stopping pagination");
-                break;
-            }
         }
 
+        tracing::info!("OSV: fetched {} unique advisories", all_advisories.len());
         Ok(all_advisories)
+    }
+
+    /// Fetch a single advisory by ID
+    async fn fetch_advisory(&self, id: &str) -> Result<OsvAdvisory> {
+        let url = format!("{}/vulns/{}", OSV_API_URL, id);
+        let response = self.client.get(&url).send().await?;
+
+        if !response.status().is_success() {
+            anyhow::bail!("Failed to fetch advisory {}: {}", id, response.status());
+        }
+
+        let advisory: OsvAdvisory = response.json().await?;
+        Ok(advisory)
+    }
+
+    /// Fetch all npm advisories from OSV (legacy - kept for compatibility)
+    #[allow(dead_code)]
+    pub async fn fetch_npm_advisories(&self) -> Result<Vec<OsvAdvisory>> {
+        // OSV doesn't support ecosystem-wide queries via querybatch
+        // Use fetch_advisories_for_packages instead
+        tracing::warn!("fetch_npm_advisories is deprecated, use fetch_advisories_for_packages");
+        Ok(vec![])
     }
 
     /// Query vulnerabilities for a specific package
