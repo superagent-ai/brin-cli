@@ -33,6 +33,7 @@ pub async fn run(client: &SusClient, dry_run: bool) -> Result<()> {
                         updates.push(PackageVersionPair {
                             name: name.clone(),
                             version: assessment.version.clone(),
+                            registry: None,
                         });
                     }
                 }

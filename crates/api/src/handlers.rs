@@ -10,7 +10,7 @@ use axum::{
 use common::{
     AgenticThreatSummary, BulkLookupRequest, CveSummary, InstallScripts, PackageCapabilities,
     PackageListItem, PackageListResponse, PackageResponse, PaginationParams, PublisherInfo,
-    ScanJob, ScanPriority, ScanRequest, ScanRequestResponse,
+    Registry, ScanJob, ScanPriority, ScanRequest, ScanRequestResponse,
 };
 use serde_json::json;
 use std::io::Write;
@@ -51,6 +51,7 @@ pub async fn list_packages(
             PackageListItem {
                 name: p.name,
                 version: p.version,
+                registry: p.registry,
                 risk_level: p.risk_level,
                 trust_score: p.trust_score.map(|s| s as u8),
                 weekly_downloads: p.weekly_downloads.map(|d| d as u64),
@@ -81,7 +82,7 @@ pub async fn get_package(
         .map(|s| s.into_owned())
         .unwrap_or(name);
 
-    let package = state.db.get_latest_scan(&name).await.map_err(|e| {
+    let package = state.db.get_latest_scan(&name, None).await.map_err(|e| {
         tracing::error!("Database error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -127,6 +128,7 @@ pub async fn get_package(
     let response = PackageResponse {
         name: package.name,
         version: package.version,
+        registry: package.registry,
         risk_level: package.risk_level,
         risk_reasons,
         trust_score: package.trust_score.map(|s| s as u8),
@@ -172,13 +174,17 @@ pub async fn get_package_version(
         .map(|s| s.into_owned())
         .unwrap_or(name);
 
-    let package = state.db.get_scan(&name, &version).await.map_err(|e| {
-        tracing::error!("Database error: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error" })),
-        )
-    })?;
+    let package = state
+        .db
+        .get_scan(&name, &version, None)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database error" })),
+            )
+        })?;
 
     let package = package.ok_or_else(|| {
         (
@@ -209,6 +215,7 @@ pub async fn get_package_version(
     let response = PackageResponse {
         name: package.name,
         version: package.version,
+        registry: package.registry,
         risk_level: package.risk_level,
         risk_reasons,
         trust_score: package.trust_score.map(|s| s as u8),
@@ -249,7 +256,8 @@ pub async fn request_scan(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ScanRequest>,
 ) -> Result<Json<ScanRequestResponse>, (StatusCode, Json<serde_json::Value>)> {
-    let job = ScanJob::new(request.name, request.version, ScanPriority::High);
+    let registry = request.registry.unwrap_or(Registry::Npm);
+    let job = ScanJob::with_registry(request.name, request.version, registry, ScanPriority::High);
     let job_id = job.id;
 
     state.queue.push(job).await.map_err(|e| {
@@ -302,6 +310,7 @@ pub async fn bulk_lookup(
         responses.push(PackageResponse {
             name: package.name,
             version: package.version,
+            registry: package.registry,
             risk_level: package.risk_level,
             risk_reasons,
             trust_score: package.trust_score.map(|s| s as u8),

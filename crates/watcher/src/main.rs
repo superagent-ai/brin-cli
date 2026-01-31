@@ -7,7 +7,7 @@ mod npm_changes;
 
 use anyhow::Result;
 use axum::{routing::get, Json, Router};
-use common::{Database, ScanJob, ScanPriority, ScanQueue};
+use common::{Database, Registry, ScanJob, ScanPriority, ScanQueue};
 use npm_changes::NpmWatcher;
 use std::collections::HashSet;
 use std::net::SocketAddr;
@@ -170,6 +170,7 @@ async fn watcher_loop(queue: ScanQueue, watcher: NpmWatcher, tracked: Arc<Tracke
                             id: uuid::Uuid::new_v4(),
                             package: change.name,
                             version: change.version,
+                            registry: Registry::Npm,
                             priority,
                             requested_at: chrono::Utc::now(),
                             requested_by: Some("watcher".to_string()),
