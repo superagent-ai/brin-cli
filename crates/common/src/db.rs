@@ -251,6 +251,54 @@ impl Database {
 
         Ok(packages)
     }
+
+    /// Get packages with pagination and CVE/threat counts (optimized for list views)
+    pub async fn get_packages_paginated(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<PackageWithCounts>, i64)> {
+        // Single query with CVE/threat counts using subqueries (more efficient than JOINs for counts)
+        let packages: Vec<PackageWithCounts> = sqlx::query_as(
+            r#"
+            SELECT 
+                p.id, p.name, p.version, p.risk_level, p.trust_score,
+                p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
+                COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
+                COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+            FROM packages p
+            ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // Get total count
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM packages")
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok((packages, total.0))
+    }
+}
+
+/// Package with CVE/threat counts for list views
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PackageWithCounts {
+    pub id: i32,
+    pub name: String,
+    pub version: String,
+    pub risk_level: RiskLevel,
+    pub trust_score: Option<i16>,
+    pub publisher_verified: Option<bool>,
+    pub weekly_downloads: Option<i64>,
+    pub capabilities: serde_json::Value,
+    pub scanned_at: chrono::DateTime<chrono::Utc>,
+    pub cve_count: i64,
+    pub threat_count: i64,
 }
 
 /// New package for insertion

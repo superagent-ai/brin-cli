@@ -265,6 +265,37 @@ impl InstallScripts {
     }
 }
 
+/// Lightweight package item for list views (no full CVE/threat details)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackageListItem {
+    pub name: String,
+    pub version: String,
+    pub risk_level: RiskLevel,
+    pub trust_score: Option<u8>,
+    pub weekly_downloads: Option<u64>,
+    pub publisher_verified: Option<bool>,
+    pub cve_count: i64,
+    pub threat_count: i64,
+    pub capabilities: PackageCapabilities,
+    pub scanned_at: DateTime<Utc>,
+}
+
+/// Paginated list response for packages
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackageListResponse {
+    pub packages: Vec<PackageListItem>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+/// Pagination query parameters
+#[derive(Debug, Clone, Deserialize)]
+pub struct PaginationParams {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
 /// Full package response for API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageResponse {

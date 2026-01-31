@@ -4,6 +4,6 @@ pub mod db;
 pub mod models;
 pub mod queue;
 
-pub use db::{Database, NewAgenticThreat, NewPackage, NewPackageCve};
+pub use db::{Database, NewAgenticThreat, NewPackage, NewPackageCve, PackageWithCounts};
 pub use models::*;
 pub use queue::ScanQueue;

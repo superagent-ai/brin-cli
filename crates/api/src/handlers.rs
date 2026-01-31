@@ -2,14 +2,15 @@
 
 use crate::AppState;
 use axum::{
-    extract::{Multipart, Path, State},
+    extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
 };
 use common::{
     AgenticThreatSummary, BulkLookupRequest, CveSummary, InstallScripts, PackageCapabilities,
-    PackageResponse, PublisherInfo, ScanJob, ScanPriority, ScanRequest, ScanRequestResponse,
+    PackageListItem, PackageListResponse, PackageResponse, PaginationParams, PublisherInfo,
+    ScanJob, ScanPriority, ScanRequest, ScanRequestResponse,
 };
 use serde_json::json;
 use std::io::Write;
@@ -20,75 +21,53 @@ pub async fn health_check() -> impl IntoResponse {
     Json(json!({ "status": "ok" }))
 }
 
-/// List all packages
+/// List packages with pagination (optimized - single query with counts)
 pub async fn list_packages(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<PackageResponse>>, (StatusCode, Json<serde_json::Value>)> {
-    let packages = state.db.get_all_packages().await.map_err(|e| {
-        tracing::error!("Database error: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error" })),
-        )
-    })?;
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<PackageListResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let limit = params.limit.unwrap_or(50).min(100); // Default 50, max 100
+    let offset = params.offset.unwrap_or(0);
 
-    let mut responses = Vec::new();
+    let (packages, total) = state
+        .db
+        .get_packages_paginated(limit, offset)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database error" })),
+            )
+        })?;
 
-    for package in packages {
-        let cves = state
-            .db
-            .get_package_cves(package.id)
-            .await
-            .unwrap_or_default();
-        let threats = state
-            .db
-            .get_package_threats(package.id)
-            .await
-            .unwrap_or_default();
+    let items: Vec<PackageListItem> = packages
+        .into_iter()
+        .map(|p| {
+            let capabilities: PackageCapabilities =
+                serde_json::from_value(p.capabilities.clone()).unwrap_or_default();
 
-        let risk_reasons: Vec<String> =
-            serde_json::from_value(package.risk_reasons.clone()).unwrap_or_default();
+            PackageListItem {
+                name: p.name,
+                version: p.version,
+                risk_level: p.risk_level,
+                trust_score: p.trust_score.map(|s| s as u8),
+                weekly_downloads: p.weekly_downloads.map(|d| d as u64),
+                publisher_verified: p.publisher_verified,
+                cve_count: p.cve_count,
+                threat_count: p.threat_count,
+                capabilities,
+                scanned_at: p.scanned_at,
+            }
+        })
+        .collect();
 
-        let capabilities: PackageCapabilities =
-            serde_json::from_value(package.capabilities.clone()).unwrap_or_default();
-
-        responses.push(PackageResponse {
-            name: package.name,
-            version: package.version,
-            risk_level: package.risk_level,
-            risk_reasons,
-            trust_score: package.trust_score.map(|s| s as u8),
-            publisher: package.publisher_verified.map(|verified| PublisherInfo {
-                name: None,
-                verified,
-            }),
-            weekly_downloads: package.weekly_downloads.map(|d| d as u64),
-            install_scripts: InstallScripts::default(),
-            cves: cves
-                .into_iter()
-                .map(|c| CveSummary {
-                    cve_id: c.cve_id,
-                    severity: c.severity,
-                    description: c.description,
-                    fixed_in: c.fixed_in,
-                })
-                .collect(),
-            agentic_threats: threats
-                .into_iter()
-                .map(|t| AgenticThreatSummary {
-                    threat_type: t.threat_type,
-                    confidence: t.confidence,
-                    location: t.location,
-                    snippet: t.snippet,
-                })
-                .collect(),
-            capabilities,
-            skill_md: package.skill_md,
-            scanned_at: package.scanned_at,
-        });
-    }
-
-    Ok(Json(responses))
+    Ok(Json(PackageListResponse {
+        packages: items,
+        total,
+        limit,
+        offset,
+    }))
 }
 
 /// Get the latest scan for a package
