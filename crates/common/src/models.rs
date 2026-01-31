@@ -207,6 +207,8 @@ pub struct ScanJob {
     pub id: Uuid,
     pub package: String,
     pub version: Option<String>,
+    /// Registry type (defaults to Npm for backwards compatibility with old queue jobs)
+    #[serde(default)]
     pub registry: Registry,
     pub priority: ScanPriority,
     pub requested_at: DateTime<Utc>,
