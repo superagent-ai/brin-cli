@@ -21,7 +21,7 @@ pub async fn health_check() -> impl IntoResponse {
     Json(json!({ "status": "ok" }))
 }
 
-/// List packages with pagination (optimized - single query with counts)
+/// List packages with pagination and optional search (optimized - single query with counts)
 pub async fn list_packages(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
@@ -29,17 +29,18 @@ pub async fn list_packages(
     let limit = params.limit.unwrap_or(50).min(100); // Default 50, max 100
     let offset = params.offset.unwrap_or(0);
 
-    let (packages, total) = state
-        .db
-        .get_packages_paginated(limit, offset)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
-            )
-        })?;
+    let (packages, total) = if let Some(ref q) = params.q {
+        state.db.search_packages(q, limit, offset).await
+    } else {
+        state.db.get_packages_paginated(limit, offset).await
+    }
+    .map_err(|e| {
+        tracing::error!("Database error: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Database error" })),
+        )
+    })?;
 
     let items: Vec<PackageListItem> = packages
         .into_iter()
