@@ -35,6 +35,9 @@ pub async fn run(
     yolo: bool,
     strict: bool,
 ) -> Result<()> {
+    // Ensure AGENTS.md exists with sus instructions (only runs once)
+    ensure_agents_md();
+
     for package_spec in &packages {
         let (name, version) = parse_package_spec(package_spec);
         let display_name = if let Some(v) = version {
@@ -203,6 +206,99 @@ const AGENT_ROOTS: &[&str] = &[
     ".windsurf",
 ];
 
+/// AGENTS.md file path
+const AGENTS_MD_PATH: &str = "AGENTS.md";
+
+/// Marker to detect if AGENTS.md has already been patched with sus instructions
+const SUS_MARKER: &str = "## sus Package Security";
+
+/// Content to add to AGENTS.md
+const SUS_AGENTS_SECTION: &str = r#"## sus Package Security
+
+When installing packages in this project, use `sus` instead of directly using package managers (npm, pip, cargo, etc.):
+
+- Install packages: `sus add <package-name>`
+- Check a package: `sus check <package-name>`
+
+sus performs security analysis before installation. After installing a package, check the skills folder in your agent's directory (e.g., `.cursor/skills/`, `.claude/skills/`) for package-specific usage guidance.
+"#;
+
+/// Ensure AGENTS.md exists and contains sus instructions
+/// Creates the file if it doesn't exist, or patches it if the sus section is missing
+fn ensure_agents_md() {
+    ensure_agents_md_at_path(std::path::Path::new(AGENTS_MD_PATH));
+}
+
+/// Result of ensuring AGENTS.md
+#[derive(Debug, PartialEq)]
+enum AgentsMdResult {
+    /// File was created
+    Created,
+    /// File was patched (sus section added)
+    Patched,
+    /// File already had sus section
+    AlreadyPatched,
+    /// Error occurred
+    Error,
+}
+
+/// Internal implementation that accepts a path for testability
+fn ensure_agents_md_at_path(agents_path: &std::path::Path) -> AgentsMdResult {
+    use std::fs;
+
+    // Check if file exists
+    if agents_path.exists() {
+        // Read existing content
+        match fs::read_to_string(agents_path) {
+            Ok(content) => {
+                // Check if already patched
+                if content.contains(SUS_MARKER) {
+                    // Already patched, nothing to do
+                    return AgentsMdResult::AlreadyPatched;
+                }
+
+                // Append sus section to existing file
+                let new_content = if content.ends_with('\n') {
+                    format!("{}\n{}", content, SUS_AGENTS_SECTION)
+                } else {
+                    format!("{}\n\n{}", content, SUS_AGENTS_SECTION)
+                };
+
+                if let Err(e) = fs::write(agents_path, new_content) {
+                    tracing::warn!("Failed to patch AGENTS.md: {}", e);
+                    AgentsMdResult::Error
+                } else {
+                    println!(
+                        "   {} patched {} with sus instructions",
+                        "📝".cyan(),
+                        agents_path.display()
+                    );
+                    AgentsMdResult::Patched
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to read AGENTS.md: {}", e);
+                AgentsMdResult::Error
+            }
+        }
+    } else {
+        // Create new AGENTS.md with sus section
+        let content = format!("# AGENTS.md\n\n{}", SUS_AGENTS_SECTION);
+
+        if let Err(e) = fs::write(agents_path, content) {
+            tracing::warn!("Failed to create AGENTS.md: {}", e);
+            AgentsMdResult::Error
+        } else {
+            println!(
+                "   {} created {} with sus instructions",
+                "📝".cyan(),
+                agents_path.display()
+            );
+            AgentsMdResult::Created
+        }
+    }
+}
+
 /// Convert package name to valid skill name (per Agent Skills spec)
 fn to_skill_name(package: &str) -> String {
     let mut name: String = package
@@ -275,6 +371,8 @@ fn save_agent_skills(package_name: &str, skill_content: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     fn test_parse_package_spec() {
@@ -288,5 +386,82 @@ mod tests {
             parse_package_spec("@types/node@18.0.0"),
             ("@types/node", Some("18.0.0"))
         );
+    }
+
+    #[test]
+    fn test_ensure_agents_md_creates_new_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let agents_path = temp_dir.path().join("AGENTS.md");
+
+        let result = ensure_agents_md_at_path(&agents_path);
+
+        assert_eq!(result, AgentsMdResult::Created);
+        assert!(agents_path.exists());
+
+        let content = fs::read_to_string(&agents_path).unwrap();
+        assert!(content.contains("# AGENTS.md"));
+        assert!(content.contains(SUS_MARKER));
+        assert!(content.contains("sus add"));
+    }
+
+    #[test]
+    fn test_ensure_agents_md_patches_existing_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let agents_path = temp_dir.path().join("AGENTS.md");
+
+        // Create existing AGENTS.md without sus section
+        let existing_content = "# AGENTS.md\n\n## Setup\n\nRun `npm install`\n";
+        fs::write(&agents_path, existing_content).unwrap();
+
+        let result = ensure_agents_md_at_path(&agents_path);
+
+        assert_eq!(result, AgentsMdResult::Patched);
+
+        let content = fs::read_to_string(&agents_path).unwrap();
+        // Original content should still be there
+        assert!(content.contains("## Setup"));
+        assert!(content.contains("npm install"));
+        // Sus section should be appended
+        assert!(content.contains(SUS_MARKER));
+        assert!(content.contains("sus add"));
+    }
+
+    #[test]
+    fn test_ensure_agents_md_skips_already_patched() {
+        let temp_dir = TempDir::new().unwrap();
+        let agents_path = temp_dir.path().join("AGENTS.md");
+
+        // Create AGENTS.md that already has sus section
+        let existing_content = format!(
+            "# AGENTS.md\n\n## Setup\n\nRun `npm install`\n\n{}",
+            SUS_AGENTS_SECTION
+        );
+        fs::write(&agents_path, &existing_content).unwrap();
+
+        let result = ensure_agents_md_at_path(&agents_path);
+
+        assert_eq!(result, AgentsMdResult::AlreadyPatched);
+
+        // Content should be unchanged
+        let content = fs::read_to_string(&agents_path).unwrap();
+        assert_eq!(content, existing_content);
+    }
+
+    #[test]
+    fn test_ensure_agents_md_handles_file_without_trailing_newline() {
+        let temp_dir = TempDir::new().unwrap();
+        let agents_path = temp_dir.path().join("AGENTS.md");
+
+        // Create existing AGENTS.md without trailing newline
+        let existing_content = "# AGENTS.md\n\n## Setup\n\nRun `npm install`";
+        fs::write(&agents_path, existing_content).unwrap();
+
+        let result = ensure_agents_md_at_path(&agents_path);
+
+        assert_eq!(result, AgentsMdResult::Patched);
+
+        let content = fs::read_to_string(&agents_path).unwrap();
+        // Should have proper spacing between sections
+        assert!(content.contains("npm install`\n\n## sus Package Security"));
     }
 }

@@ -27,3 +27,4 @@ dotenvy = { workspace = true }
 [dev-dependencies]
 wiremock = "0.6"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tempfile = "3"
