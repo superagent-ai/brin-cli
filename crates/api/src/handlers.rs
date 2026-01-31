@@ -20,6 +20,77 @@ pub async fn health_check() -> impl IntoResponse {
     Json(json!({ "status": "ok" }))
 }
 
+/// List all packages
+pub async fn list_packages(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<PackageResponse>>, (StatusCode, Json<serde_json::Value>)> {
+    let packages = state.db.get_all_packages().await.map_err(|e| {
+        tracing::error!("Database error: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Database error" })),
+        )
+    })?;
+
+    let mut responses = Vec::new();
+
+    for package in packages {
+        let cves = state
+            .db
+            .get_package_cves(package.id)
+            .await
+            .unwrap_or_default();
+        let threats = state
+            .db
+            .get_package_threats(package.id)
+            .await
+            .unwrap_or_default();
+
+        let risk_reasons: Vec<String> =
+            serde_json::from_value(package.risk_reasons.clone()).unwrap_or_default();
+
+        let capabilities: PackageCapabilities =
+            serde_json::from_value(package.capabilities.clone()).unwrap_or_default();
+
+        responses.push(PackageResponse {
+            name: package.name,
+            version: package.version,
+            risk_level: package.risk_level,
+            risk_reasons,
+            trust_score: package.trust_score.map(|s| s as u8),
+            publisher: package.publisher_verified.map(|verified| PublisherInfo {
+                name: None,
+                verified,
+            }),
+            weekly_downloads: package.weekly_downloads.map(|d| d as u64),
+            install_scripts: InstallScripts::default(),
+            cves: cves
+                .into_iter()
+                .map(|c| CveSummary {
+                    cve_id: c.cve_id,
+                    severity: c.severity,
+                    description: c.description,
+                    fixed_in: c.fixed_in,
+                })
+                .collect(),
+            agentic_threats: threats
+                .into_iter()
+                .map(|t| AgenticThreatSummary {
+                    threat_type: t.threat_type,
+                    confidence: t.confidence,
+                    location: t.location,
+                    snippet: t.snippet,
+                })
+                .collect(),
+            capabilities,
+            skill_md: package.skill_md,
+            scanned_at: package.scanned_at,
+        });
+    }
+
+    Ok(Json(responses))
+}
+
 /// Get the latest scan for a package
 pub async fn get_package(
     State(state): State<Arc<AppState>>,

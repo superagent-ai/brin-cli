@@ -16,6 +16,7 @@ pub fn health_routes() -> Router<Arc<AppState>> {
 /// Package-related routes
 pub fn package_routes() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/v1/packages", get(handlers::list_packages))
         .route("/v1/packages/{name}", get(handlers::get_package))
         .route(
             "/v1/packages/{name}/{version}",
