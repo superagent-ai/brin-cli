@@ -283,6 +283,43 @@ impl Database {
 
         Ok((packages, total.0))
     }
+
+    /// Search packages by name with pagination and CVE/threat counts
+    pub async fn search_packages(
+        &self,
+        query: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<PackageWithCounts>, i64)> {
+        let pattern = format!("%{}%", query);
+
+        let packages: Vec<PackageWithCounts> = sqlx::query_as(
+            r#"
+            SELECT 
+                p.id, p.name, p.version, p.risk_level, p.trust_score,
+                p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
+                COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
+                COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+            FROM packages p
+            WHERE p.name ILIKE $1
+            ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(&pattern)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // Get total count of matching packages
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM packages WHERE name ILIKE $1")
+            .bind(&pattern)
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok((packages, total.0))
+    }
 }
 
 /// Package with CVE/threat counts for list views

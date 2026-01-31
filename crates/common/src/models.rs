@@ -294,6 +294,7 @@ pub struct PackageListResponse {
 pub struct PaginationParams {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub q: Option<String>, // Search query
 }
 
 /// Full package response for API
