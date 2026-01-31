@@ -4,10 +4,12 @@ mod handlers;
 mod routes;
 
 use anyhow::Result;
-use axum::Router;
+use axum::{routing::get, Json, Router};
 use common::{Database, ScanQueue};
+use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -34,28 +36,67 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Database connection
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(3000);
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+
+    // Start a minimal health check server FIRST (for Cloud Run)
+    let health_app = Router::new().route(
+        "/health",
+        get(|| async { Json(json!({ "status": "starting" })) }),
+    );
+    let health_listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!("Health server listening on {}", addr);
+
+    // Spawn health server in background while we initialize
+    let health_handle = tokio::spawn(async move {
+        let _ = axum::serve(health_listener, health_app).await;
+    });
+
+    // Database connection with retries
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://sus:sus@localhost:5432/sus".to_string());
 
-    tracing::info!("Connecting to database...");
-    let db = Database::new(&database_url).await?;
+    let db = loop {
+        tracing::info!("Connecting to database...");
+        match Database::new(&database_url).await {
+            Ok(db) => break db,
+            Err(e) => {
+                tracing::warn!("Database connection failed: {}, retrying in 5s...", e);
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    };
 
     // Run migrations
     tracing::info!("Running migrations...");
     db.migrate().await?;
 
-    // Redis connection
+    // Redis connection with retries
     let redis_url =
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
 
-    tracing::info!("Connecting to Redis...");
-    let queue = ScanQueue::new(&redis_url).await?;
+    let queue = loop {
+        tracing::info!("Connecting to Redis...");
+        match ScanQueue::new(&redis_url).await {
+            Ok(queue) => break queue,
+            Err(e) => {
+                tracing::warn!("Redis connection failed: {}, retrying in 5s...", e);
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    };
+
+    // Stop health server
+    health_handle.abort();
 
     // Create app state
     let state = Arc::new(AppState { db, queue });
 
-    // Build router
+    // Build full router
     let app = Router::new()
         .merge(routes::health_routes())
         .merge(routes::package_routes())
@@ -64,15 +105,8 @@ async fn main() -> Result<()> {
         .layer(CompressionLayer::new())
         .layer(CorsLayer::permissive());
 
-    // Start server
-    let port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(3000);
-
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    tracing::info!("Starting server on {}", addr);
-
+    // Start full server
+    tracing::info!("Starting API server on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 
