@@ -17,6 +17,10 @@ struct Args {
     #[arg(short, long, default_value = "1000")]
     count: usize,
 
+    /// Offset to skip the first N packages (for incremental seeding)
+    #[arg(short, long, default_value = "0")]
+    offset: usize,
+
     /// Include AI/agent ecosystem packages
     #[arg(long)]
     include_ai: bool,
@@ -152,13 +156,21 @@ async fn main() -> Result<()> {
         .build()?;
 
     // 1. Fetch top packages from download-counts
-    println!(
-        "📦 Fetching top {} packages by download count...",
-        args.count
-    );
+    if args.offset > 0 {
+        println!(
+            "📦 Fetching packages {} to {} by download count...",
+            args.offset + 1,
+            args.offset + args.count
+        );
+    } else {
+        println!(
+            "📦 Fetching top {} packages by download count...",
+            args.count
+        );
+    }
     println!("   (downloading ~90MB of npm stats, this may take a moment)");
 
-    match fetch_top_packages(&client, args.count).await {
+    match fetch_top_packages(&client, args.count, args.offset).await {
         Ok(top_packages) => {
             println!("   Found {} top packages", top_packages.len());
             packages.extend(top_packages);
@@ -279,7 +291,11 @@ async fn main() -> Result<()> {
 }
 
 /// Fetch top packages from npm download-counts
-async fn fetch_top_packages(client: &reqwest::Client, count: usize) -> Result<Vec<String>> {
+async fn fetch_top_packages(
+    client: &reqwest::Client,
+    count: usize,
+    offset: usize,
+) -> Result<Vec<String>> {
     // Fetch the download counts JSON (this is a large file ~90MB)
     let response = client
         .get(DOWNLOAD_COUNTS_URL)
@@ -300,6 +316,7 @@ async fn fetch_top_packages(client: &reqwest::Client, count: usize) -> Result<Ve
 
     let top_packages: Vec<String> = sorted
         .into_iter()
+        .skip(offset)
         .take(count)
         .map(|(name, _)| name)
         .collect();

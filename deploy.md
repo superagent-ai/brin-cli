@@ -133,11 +133,15 @@ set -a; source .env.production; set +a
 # Seed with N packages
 cargo run --package seed -- --count 100
 
+# Include AI/agent ecosystem packages (langchain, openai, ai, etc.)
+cargo run --package seed -- --count 100 --include-ai
+
 # Include packages with known CVEs
 cargo run --package seed -- --count 100 --include-cves
 
-# Include packages with install scripts (for testing detection)
-cargo run --package seed -- --count 100 --include-ai
+# Incremental seeding: skip first N packages, then take next M
+# Example: already seeded top 1000, now seed packages 1001-3000
+cargo run --package seed -- --offset 1000 --count 2000 --include-ai
 ```
 
 ---
