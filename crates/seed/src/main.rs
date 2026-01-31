@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use common::models::{ScanJob, ScanPriority};
+use common::models::{Registry, ScanJob, ScanPriority};
 use common::queue::ScanQueue;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Deserialize;
@@ -260,6 +260,7 @@ async fn main() -> Result<()> {
             id: uuid::Uuid::new_v4(),
             package: package.clone(),
             version: None, // Will fetch latest
+            registry: Registry::Npm,
             priority,
             requested_at: chrono::Utc::now(),
             requested_by: Some("seed".to_string()),

@@ -11,8 +11,8 @@ use capabilities::CapabilityExtractor;
 use chrono::{DateTime, Utc};
 use common::{
     db::{NewAgenticThreat, NewPackage, NewPackageCve},
-    AgenticThreatSummary, CveSummary, Database, NpmPackageMetadata, PackageCapabilities, RiskLevel,
-    UsageDocs,
+    AgenticThreatSummary, CveSummary, Database, NpmPackageMetadata, PackageCapabilities, Registry,
+    RiskLevel, UsageDocs,
 };
 use cve::CveScanner;
 use npm::NpmClient;
@@ -311,6 +311,7 @@ impl PackageScanner {
             .upsert_package(&NewPackage {
                 name: package.to_string(),
                 version: version.to_string(),
+                registry: Registry::Npm,
                 risk_level,
                 risk_reasons: serde_json::to_value(&risk_reasons)?,
                 trust_score: Some(trust_score as i16),

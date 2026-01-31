@@ -81,6 +81,7 @@ impl SusClient {
         let request = ScanRequest {
             name: name.to_string(),
             version: version.map(String::from),
+            registry: None, // Default to npm
         };
 
         let response = self
@@ -148,6 +149,7 @@ mod tests {
         serde_json::json!({
             "name": "express",
             "version": "4.18.2",
+            "registry": "npm",
             "risk_level": "clean",
             "risk_reasons": [],
             "trust_score": 85,

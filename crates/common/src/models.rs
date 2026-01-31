@@ -49,12 +49,40 @@ pub enum ScanPriority {
     Immediate = 3,
 }
 
+/// Package registry type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, Default)]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum Registry {
+    #[default]
+    Npm,
+    Pypi,
+    Crates,
+}
+
+impl Registry {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Registry::Npm => "npm",
+            Registry::Pypi => "pypi",
+            Registry::Crates => "crates",
+        }
+    }
+}
+
+impl std::fmt::Display for Registry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 /// A package scan result stored in the database
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Package {
     pub id: i32,
     pub name: String,
     pub version: String,
+    pub registry: Registry,
     pub risk_level: RiskLevel,
     pub risk_reasons: serde_json::Value,
     pub trust_score: Option<i16>,
@@ -179,6 +207,7 @@ pub struct ScanJob {
     pub id: Uuid,
     pub package: String,
     pub version: Option<String>,
+    pub registry: Registry,
     pub priority: ScanPriority,
     pub requested_at: DateTime<Utc>,
     pub requested_by: Option<String>, // "user", "watcher", "cve-update"
@@ -192,6 +221,25 @@ impl ScanJob {
             id: Uuid::new_v4(),
             package,
             version,
+            registry: Registry::Npm,
+            priority,
+            requested_at: Utc::now(),
+            requested_by: None,
+            tarball_path: None,
+        }
+    }
+
+    pub fn with_registry(
+        package: String,
+        version: Option<String>,
+        registry: Registry,
+        priority: ScanPriority,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            package,
+            version,
+            registry,
             priority,
             requested_at: Utc::now(),
             requested_by: None,
@@ -205,6 +253,7 @@ impl ScanJob {
             id: Uuid::new_v4(),
             package,
             version: Some(version),
+            registry: Registry::Npm,
             priority: ScanPriority::Immediate,
             requested_at: Utc::now(),
             requested_by: Some("tarball-upload".to_string()),
@@ -270,6 +319,7 @@ impl InstallScripts {
 pub struct PackageListItem {
     pub name: String,
     pub version: String,
+    pub registry: Registry,
     pub risk_level: RiskLevel,
     pub trust_score: Option<u8>,
     pub weekly_downloads: Option<u64>,
@@ -302,6 +352,7 @@ pub struct PaginationParams {
 pub struct PackageResponse {
     pub name: String,
     pub version: String,
+    pub registry: Registry,
     pub risk_level: RiskLevel,
     pub risk_reasons: Vec<String>,
     pub trust_score: Option<u8>,
@@ -320,6 +371,8 @@ pub struct PackageResponse {
 pub struct ScanRequest {
     pub name: String,
     pub version: Option<String>,
+    #[serde(default)]
+    pub registry: Option<Registry>,
 }
 
 /// Response after requesting a scan
@@ -340,6 +393,8 @@ pub struct BulkLookupRequest {
 pub struct PackageVersionPair {
     pub name: String,
     pub version: String,
+    #[serde(default)]
+    pub registry: Option<Registry>,
 }
 
 /// npm package metadata from registry
@@ -458,9 +513,25 @@ mod tests {
 
         assert_eq!(job.package, "express");
         assert_eq!(job.version, Some("4.18.0".to_string()));
+        assert_eq!(job.registry, Registry::Npm);
         assert_eq!(job.priority, ScanPriority::High);
         assert!(job.tarball_path.is_none());
         assert!(job.requested_by.is_none());
+    }
+
+    #[test]
+    fn test_scan_job_with_registry() {
+        let job = ScanJob::with_registry(
+            "requests".to_string(),
+            Some("2.28.0".to_string()),
+            Registry::Pypi,
+            ScanPriority::Medium,
+        );
+
+        assert_eq!(job.package, "requests");
+        assert_eq!(job.version, Some("2.28.0".to_string()));
+        assert_eq!(job.registry, Registry::Pypi);
+        assert_eq!(job.priority, ScanPriority::Medium);
     }
 
     #[test]
@@ -473,9 +544,41 @@ mod tests {
 
         assert_eq!(job.package, "my-package");
         assert_eq!(job.version, Some("1.0.0".to_string()));
+        assert_eq!(job.registry, Registry::Npm);
         assert_eq!(job.priority, ScanPriority::Immediate);
         assert_eq!(job.tarball_path, Some("/tmp/my-package.tgz".to_string()));
         assert_eq!(job.requested_by, Some("tarball-upload".to_string()));
+    }
+
+    #[test]
+    fn test_registry_serialization() {
+        assert_eq!(serde_json::to_string(&Registry::Npm).unwrap(), "\"npm\"");
+        assert_eq!(serde_json::to_string(&Registry::Pypi).unwrap(), "\"pypi\"");
+        assert_eq!(
+            serde_json::to_string(&Registry::Crates).unwrap(),
+            "\"crates\""
+        );
+
+        assert_eq!(
+            serde_json::from_str::<Registry>("\"npm\"").unwrap(),
+            Registry::Npm
+        );
+        assert_eq!(
+            serde_json::from_str::<Registry>("\"pypi\"").unwrap(),
+            Registry::Pypi
+        );
+        assert_eq!(
+            serde_json::from_str::<Registry>("\"crates\"").unwrap(),
+            Registry::Crates
+        );
+    }
+
+    #[test]
+    fn test_registry_display() {
+        assert_eq!(Registry::Npm.as_str(), "npm");
+        assert_eq!(Registry::Pypi.as_str(), "pypi");
+        assert_eq!(Registry::Crates.as_str(), "crates");
+        assert_eq!(format!("{}", Registry::Npm), "npm");
     }
 
     #[test]

@@ -144,6 +144,7 @@ fn get_all_dependencies() -> Result<Vec<PackageVersionPair>> {
                 deps.push(PackageVersionPair {
                     name: name.clone(),
                     version: clean_version(v),
+                    registry: None,
                 });
             }
         }
@@ -156,6 +157,7 @@ fn get_all_dependencies() -> Result<Vec<PackageVersionPair>> {
                 deps.push(PackageVersionPair {
                     name: name.clone(),
                     version: clean_version(v),
+                    registry: None,
                 });
             }
         }
@@ -179,6 +181,7 @@ fn get_all_dependencies() -> Result<Vec<PackageVersionPair>> {
                             deps.push(PackageVersionPair {
                                 name: name.to_string(),
                                 version: version.to_string(),
+                                registry: None,
                             });
                         }
                     }
@@ -211,6 +214,7 @@ fn collect_lock_deps(
             out.push(PackageVersionPair {
                 name: name.clone(),
                 version: version.to_string(),
+                registry: None,
             });
         }
         // Recurse into nested dependencies

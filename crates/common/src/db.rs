@@ -33,35 +33,79 @@ impl Database {
         Ok(())
     }
 
-    /// Get the latest scan for a package (any version)
-    pub async fn get_latest_scan(&self, name: &str) -> Result<Option<Package>> {
-        let package = sqlx::query_as::<_, Package>(
-            r#"
-            SELECT * FROM packages 
-            WHERE name = $1 
-            ORDER BY scanned_at DESC 
-            LIMIT 1
-            "#,
-        )
-        .bind(name)
-        .fetch_optional(&self.pool)
-        .await?;
+    /// Get the latest scan for a package (any version), optionally filtered by registry
+    pub async fn get_latest_scan(
+        &self,
+        name: &str,
+        registry: Option<Registry>,
+    ) -> Result<Option<Package>> {
+        let package = match registry {
+            Some(reg) => {
+                sqlx::query_as::<_, Package>(
+                    r#"
+                    SELECT * FROM packages 
+                    WHERE name = $1 AND registry = $2
+                    ORDER BY scanned_at DESC 
+                    LIMIT 1
+                    "#,
+                )
+                .bind(name)
+                .bind(reg)
+                .fetch_optional(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query_as::<_, Package>(
+                    r#"
+                    SELECT * FROM packages 
+                    WHERE name = $1 
+                    ORDER BY scanned_at DESC 
+                    LIMIT 1
+                    "#,
+                )
+                .bind(name)
+                .fetch_optional(&self.pool)
+                .await?
+            }
+        };
 
         Ok(package)
     }
 
-    /// Get a specific package version scan
-    pub async fn get_scan(&self, name: &str, version: &str) -> Result<Option<Package>> {
-        let package = sqlx::query_as::<_, Package>(
-            r#"
-            SELECT * FROM packages 
-            WHERE name = $1 AND version = $2
-            "#,
-        )
-        .bind(name)
-        .bind(version)
-        .fetch_optional(&self.pool)
-        .await?;
+    /// Get a specific package version scan, optionally filtered by registry
+    pub async fn get_scan(
+        &self,
+        name: &str,
+        version: &str,
+        registry: Option<Registry>,
+    ) -> Result<Option<Package>> {
+        let package = match registry {
+            Some(reg) => {
+                sqlx::query_as::<_, Package>(
+                    r#"
+                    SELECT * FROM packages 
+                    WHERE name = $1 AND version = $2 AND registry = $3
+                    "#,
+                )
+                .bind(name)
+                .bind(version)
+                .bind(reg)
+                .fetch_optional(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query_as::<_, Package>(
+                    r#"
+                    SELECT * FROM packages 
+                    WHERE name = $1 AND version = $2
+                    "#,
+                )
+                .bind(name)
+                .bind(version)
+                .fetch_optional(&self.pool)
+                .await?
+            }
+        };
 
         Ok(package)
     }
@@ -100,11 +144,11 @@ impl Database {
     pub async fn upsert_package(&self, package: &NewPackage) -> Result<i32> {
         let row = sqlx::query_scalar::<_, i32>(
             r#"
-            INSERT INTO packages (name, version, risk_level, risk_reasons, trust_score, 
+            INSERT INTO packages (name, version, registry, risk_level, risk_reasons, trust_score, 
                 publisher_verified, weekly_downloads, maintainer_count, maintainers, last_publish, 
                 capabilities, skill_md, scan_version)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            ON CONFLICT (name, version) DO UPDATE SET
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            ON CONFLICT (name, version, registry) DO UPDATE SET
                 risk_level = EXCLUDED.risk_level,
                 risk_reasons = EXCLUDED.risk_reasons,
                 trust_score = EXCLUDED.trust_score,
@@ -122,6 +166,7 @@ impl Database {
         )
         .bind(&package.name)
         .bind(&package.version)
+        .bind(package.registry)
         .bind(package.risk_level)
         .bind(&package.risk_reasons)
         .bind(package.trust_score)
@@ -208,20 +253,32 @@ impl Database {
         // Build query with multiple conditions
         let mut results = Vec::new();
         for pkg in packages {
-            if let Some(package) = self.get_scan(&pkg.name, &pkg.version).await? {
+            if let Some(package) = self.get_scan(&pkg.name, &pkg.version, pkg.registry).await? {
                 results.push(package);
             }
         }
         Ok(results)
     }
 
-    /// Check if a package (any version) exists in the database
-    pub async fn package_exists(&self, name: &str) -> Result<bool> {
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM packages WHERE name = $1)")
+    /// Check if a package (any version) exists in the database, optionally filtered by registry
+    pub async fn package_exists(&self, name: &str, registry: Option<Registry>) -> Result<bool> {
+        let exists: bool = match registry {
+            Some(reg) => {
+                sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM packages WHERE name = $1 AND registry = $2)",
+                )
                 .bind(name)
+                .bind(reg)
                 .fetch_one(&self.pool)
-                .await?;
+                .await?
+            }
+            None => {
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM packages WHERE name = $1)")
+                    .bind(name)
+                    .fetch_one(&self.pool)
+                    .await?
+            }
+        };
 
         Ok(exists)
     }
@@ -239,7 +296,7 @@ impl Database {
     pub async fn get_all_packages(&self) -> Result<Vec<Package>> {
         let packages: Vec<Package> = sqlx::query_as(
             r#"
-            SELECT id, name, version, risk_level, risk_reasons, trust_score,
+            SELECT id, name, version, registry, risk_level, risk_reasons, trust_score,
                    publisher_verified, weekly_downloads, maintainer_count,
                    last_publish, capabilities, skill_md, scanned_at, scan_version
             FROM packages
@@ -262,7 +319,7 @@ impl Database {
         let packages: Vec<PackageWithCounts> = sqlx::query_as(
             r#"
             SELECT 
-                p.id, p.name, p.version, p.risk_level, p.trust_score,
+                p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
                 p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
                 COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
                 COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
@@ -296,7 +353,7 @@ impl Database {
         let packages: Vec<PackageWithCounts> = sqlx::query_as(
             r#"
             SELECT 
-                p.id, p.name, p.version, p.risk_level, p.trust_score,
+                p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
                 p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
                 COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
                 COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
@@ -328,6 +385,7 @@ pub struct PackageWithCounts {
     pub id: i32,
     pub name: String,
     pub version: String,
+    pub registry: Registry,
     pub risk_level: RiskLevel,
     pub trust_score: Option<i16>,
     pub publisher_verified: Option<bool>,
@@ -343,6 +401,7 @@ pub struct PackageWithCounts {
 pub struct NewPackage {
     pub name: String,
     pub version: String,
+    pub registry: Registry,
     pub risk_level: RiskLevel,
     pub risk_reasons: serde_json::Value,
     pub trust_score: Option<i16>,
