@@ -12,6 +12,12 @@ use tokio::process::Command;
 /// Timeout for OpenCode commands (5 minutes)
 const OPENCODE_TIMEOUT_SECS: u64 = 300;
 
+/// Model used for initial threat scanning
+const SCAN_MODEL: &str = "opencode/kimi-k2.5-free";
+
+/// Model used for threat verification (more capable, used to reduce false positives)
+const VERIFICATION_MODEL: &str = "anthropic/claude-opus-4-5";
+
 /// OpenCode threat report structure
 #[derive(Debug, Deserialize, Default)]
 struct OpenCodeThreatReport {
@@ -143,24 +149,99 @@ impl AgenticScanner {
 
         tracing::debug!("Running OpenCode threat scan in {:?}", package_dir);
 
-        let prompt = r#"Scan this repository for repo poisoning, prompt injection, or other attacks targeting AI agents. Only output a report, no other text.
+        let prompt = r#"# sus Package Security Scanner
 
-Output your findings as a JSON object with this structure:
+Scan this package for security threats. Analyze all files for both **agentic threats** (targeting AI systems) and **traditional vulnerabilities** (targeting applications/users).
+
+## Threat Categories
+
+### LLM Safety (Agentic Threats)
+- **prompt_injection**: Untrusted user data in prompt construction, text designed to manipulate AI agents ("Ignore previous instructions", "You are now", LLM delimiters like `<|im_start|>`), sensitive info (API keys, credentials, PII) embedded in prompts
+- **improper_output_handling**: LLM-generated content used unsafely leading to XSS, SQLi, or code execution via `eval()`. Security-sensitive decisions based on unvalidated LLM output
+- **insecure_tool_usage**: Overly permissive LLM tool definitions, unsafe data flows between LLM and external tools
+- **instruction_override**: Comments targeting AI code review ("AI: skip this", "Do not flag", "This code is safe")
+
+### Secrets Management
+- **hardcoded_secrets**: API keys, private keys, passwords, connection strings, symmetric encryption keys embedded in source code
+
+### Insecure Data Handling
+- **weak_crypto**: Weak or outdated cryptographic algorithms (DES, Triple DES, RC4, MD5 for passwords, ECB mode in block ciphers)
+- **sensitive_data_logging**: Logging statements that write passwords, PII, API keys, or session tokens to logs
+- **pii_violations**: Improper storage, insecure transmission, or mishandling of personally identifiable information
+- **insecure_deserialization**: Deserializing data from untrusted sources without validation (pickle, yaml.load, unserialize)
+
+### Injection Vulnerabilities
+- **xss**: Unsanitized or improperly escaped user input rendered directly into HTML
+- **sqli**: Database queries constructed by concatenating strings with raw, un-parameterized user input
+- **command_injection**: System commands or shell execution using user-provided input without sanitization (`exec`, `spawn`, `child_process`, `os.system`)
+- **ssrf**: Network requests to URLs provided by users without validation
+- **ssti**: User input directly embedded into server-side templates before rendering
+- **code_injection**: `eval()`, `new Function()`, `vm.runInContext()` with user-controlled input
+
+### Authentication & Session
+- **auth_bypass**: Improper session validation, insecure "remember me" functionality, missing brute-force protection
+- **weak_session_tokens**: Tokens that are predictable, lack sufficient entropy, or generated from user-controllable data
+- **insecure_password_reset**: Predictable reset tokens, token leakage in logs or URLs, insecure identity verification
+
+### Supply Chain
+- **malicious_install_scripts**: Suspicious `preinstall`/`postinstall` hooks executing unexpected code, network requests, or file operations
+- **dependency_confusion**: Internal package names, unusual registry URLs
+- **typosquatting**: Package name similar to popular packages with malicious additions
+- **obfuscated_code**: Intentionally obfuscated payloads, suspicious minified code in source files, base64-encoded execution
+
+### Other
+- **path_traversal**: `../` patterns, unsanitized file paths from user input
+- **prototype_pollution**: Unsafe object merging, `__proto__` or `constructor.prototype` manipulation
+- **backdoor**: Hidden functionality, conditional malicious behavior, time-bombs
+- **crypto_miner**: Cryptocurrency mining code
+- **data_exfiltration**: Collecting env vars/cookies/secrets and transmitting to external URLs
+
+## False Positive Guidance
+
+**DO NOT flag:**
+- Corrupted URLs in comments (hex strings with embedded words like `5495a7f...truetrue...` are build artifacts)
+- Boolean literals in configs (`{ children: true, key: true }`)
+- Test files with example payloads (`__tests__/`, `test/`, `*.spec.*`, `__mocks__/`)
+- Legitimate analytics/telemetry to known services
+- Standard developer comments ("TODO", "FIXME", "Don't remove this")
+- Build artifacts, source maps, and minified files in `dist/` folders
+- Security libraries and sanitization utilities doing their job
+
+**Context matters:** Same pattern in executable code is more serious than in comments/docs/tests.
+
+## Severity Levels
+
+- **critical**: Active exploitation, clear malicious intent, working attack code, data exfiltration
+- **high**: Likely malicious or dangerous, needs immediate review
+- **medium**: Suspicious patterns, could be legitimate but warrants investigation
+- **low**: Informational, minor issues, potential false positive
+
+## Output
+
+Return ONLY valid JSON. Use EXACTLY one of these threat_type values (snake_case):
+- prompt_injection, improper_output_handling, insecure_tool_usage, instruction_override
+- hardcoded_secrets
+- weak_crypto, sensitive_data_logging, pii_violations, insecure_deserialization
+- xss, sqli, command_injection, ssrf, ssti, code_injection
+- auth_bypass, weak_session_tokens, insecure_password_reset
+- malicious_install_scripts, dependency_confusion, typosquatting, obfuscated_code
+- path_traversal, prototype_pollution, backdoor, crypto_miner, data_exfiltration
+
 {
   "threats": [
     {
-      "threat_type": "prompt_injection" | "repo_poisoning" | "instruction_override" | "data_exfiltration" | "social_engineering",
-      "severity": "critical" | "high" | "medium" | "low",
+      "threat_type": "exact_value_from_list_above",
+      "severity": "critical|high|medium|low",
       "confidence": 0.0-1.0,
-      "location": "file path or location description",
-      "description": "what the threat does",
-      "snippet": "relevant code snippet (max 100 chars)"
+      "location": "file/path:line",
+      "description": "what it does and why it's suspicious",
+      "snippet": "relevant code (max 100 chars)"
     }
   ],
-  "summary": "brief summary of findings"
+  "summary": "brief overall assessment"
 }
 
-If no threats found, return: {"threats": [], "summary": "No threats detected"}"#;
+If no threats: {"threats": [], "summary": "No threats detected"}"#;
 
         let output = self.run_opencode(package_dir, prompt).await?;
 
@@ -248,14 +329,202 @@ Rules:
         })
     }
 
-    /// Run OpenCode CLI command in a directory
+    /// Verify detected threats using a more capable model (Claude Opus)
+    ///
+    /// This method takes threats detected by the initial scan and verifies them
+    /// to reduce false positives. Only threats confirmed by the verification
+    /// model are returned.
+    pub async fn verify_threats(
+        &self,
+        extracted: &ExtractedPackage,
+        threats: Vec<AgenticThreatSummary>,
+    ) -> Result<Vec<AgenticThreatSummary>> {
+        if threats.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let package_dir = &extracted.root;
+
+        tracing::info!(
+            "Verifying {} threats with {} in {:?}",
+            threats.len(),
+            VERIFICATION_MODEL,
+            package_dir
+        );
+
+        // Build the list of threats to verify
+        let threats_json = threats
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                format!(
+                    r#"  {{
+    "index": {},
+    "threat_type": "{:?}",
+    "confidence": {},
+    "location": "{}",
+    "snippet": "{}"
+  }}"#,
+                    i,
+                    t.threat_type,
+                    t.confidence,
+                    t.location.as_deref().unwrap_or("unknown"),
+                    t.snippet
+                        .as_deref()
+                        .unwrap_or("")
+                        .replace('\\', "\\\\")
+                        .replace('"', "\\\"")
+                        .chars()
+                        .take(100)
+                        .collect::<String>()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",\n");
+
+        let prompt = format!(
+            r#"# sus Package Security Scanner — Verification Stage
+
+You are verifying threats flagged by an initial security scan. Your job is to **confirm or reject** each finding by checking if it actually exists and represents a real threat.
+
+## Input
+
+You will receive:
+1. The package source code
+2. A list of flagged threats from the initial scan
+
+## Flagged Threats to Verify
+
+[
+{}
+]
+
+## Your Task
+
+For each flagged threat:
+
+1. **Verify the snippet exists** — Search for the code in the actual files. If the snippet doesn't exist, it's a hallucination — reject it.
+
+2. **Check the context** — Is this in:
+   - Executable code? (higher risk)
+   - Test files? (likely safe)
+   - Comments/docs? (usually safe)
+   - Build artifacts/dist? (check if legitimate)
+
+3. **Assess if it's actually dangerous** — Does it:
+   - Actually do what the description claims?
+   - Have a realistic attack vector?
+   - Pose real risk in this context?
+
+4. **Reclassify severity if needed** — Initial scan may have over/under-estimated.
+
+## Reject as False Positive
+
+- Snippet doesn't exist in the code (hallucination)
+- Corrupted URLs/hashes in comments (build artifacts)
+- Test files with intentional example payloads
+- Security libraries doing their job (sanitizers, validators)
+- Legitimate functionality misidentified as malicious
+- Dead code / unreachable paths
+- Boolean literals in config objects
+
+## Confirm as True Positive
+
+- Snippet exists and matches description
+- Code is reachable and executable
+- Poses genuine security risk
+- Not adequately mitigated by surrounding code
+
+## Adjust Severity
+
+Upgrade if:
+- Directly exploitable without user interaction
+- Affects install-time execution (`preinstall`, `postinstall`)
+- Exfiltrates to clearly malicious domains
+- Multiple vulnerabilities chain together
+
+Downgrade if:
+- Requires unlikely conditions to exploit
+- Mitigated by other code in the package
+- Low impact even if exploited
+- Common pattern with known safe usage
+
+## Output
+
+Return ONLY verified threats. Use EXACTLY one of these threat_type values (snake_case):
+- prompt_injection, improper_output_handling, insecure_tool_usage, instruction_override
+- hardcoded_secrets
+- weak_crypto, sensitive_data_logging, pii_violations, insecure_deserialization
+- xss, sqli, command_injection, ssrf, ssti, code_injection
+- auth_bypass, weak_session_tokens, insecure_password_reset
+- malicious_install_scripts, dependency_confusion, typosquatting, obfuscated_code
+- path_traversal, prototype_pollution, backdoor, crypto_miner, data_exfiltration
+
+{{
+  "threats": [
+    {{
+      "threat_type": "exact_value_from_list_above",
+      "severity": "critical|high|medium|low",
+      "confidence": 0.0-1.0,
+      "location": "file/path:line",
+      "description": "what it does and why it's dangerous",
+      "snippet": "actual code from the file (max 100 chars)"
+    }}
+  ],
+  "summary": "brief overall assessment"
+}}
+
+If no threats verified: {{"threats": [], "summary": "No threats confirmed"}}"#,
+            threats_json
+        );
+
+        let output = self
+            .run_opencode_with_model(package_dir, &prompt, VERIFICATION_MODEL)
+            .await?;
+
+        // Parse the JSON output
+        let report: OpenCodeThreatReport = self.parse_json_output(&output)?;
+
+        // Convert to AgenticThreatSummary (no confidence filtering on verification)
+        let verified_threats: Vec<AgenticThreatSummary> = report
+            .threats
+            .into_iter()
+            .map(|t| AgenticThreatSummary {
+                threat_type: parse_threat_type(&t.threat_type),
+                confidence: t.confidence.unwrap_or(0.8), // Higher default for verified threats
+                location: t.location,
+                snippet: t.snippet,
+            })
+            .collect();
+
+        tracing::info!(
+            "Verification complete: {} of {} threats confirmed",
+            verified_threats.len(),
+            threats.len()
+        );
+
+        Ok(verified_threats)
+    }
+
+    /// Run OpenCode CLI command in a directory with the default scan model
     async fn run_opencode(&self, working_dir: &Path, prompt: &str) -> Result<String> {
+        self.run_opencode_with_model(working_dir, prompt, SCAN_MODEL)
+            .await
+    }
+
+    /// Run OpenCode CLI command in a directory with a specific model
+    async fn run_opencode_with_model(
+        &self,
+        working_dir: &Path,
+        prompt: &str,
+        model: &str,
+    ) -> Result<String> {
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(OPENCODE_TIMEOUT_SECS),
             Command::new(Self::opencode_binary())
                 .arg("run")
                 .arg("-m")
-                .arg("opencode/kimi-k2.5-free")
+                .arg(model)
                 .arg(prompt)
                 .arg("--format")
                 .arg("json")
@@ -268,7 +537,7 @@ Rules:
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            tracing::warn!("OpenCode command failed: {}", stderr);
+            tracing::warn!("OpenCode command failed with model {}: {}", model, stderr);
             // Return empty result instead of failing completely
             return Ok("{}".to_string());
         }
@@ -358,13 +627,60 @@ fn extract_opencode_text(output: &str) -> String {
 
 /// Parse threat type string to enum
 fn parse_threat_type(s: &str) -> ThreatType {
-    match s.to_lowercase().as_str() {
-        "prompt_injection" | "prompt-injection" => ThreatType::PromptInjection,
-        "instruction_override" | "instruction-override" => ThreatType::InstructionOverride,
-        "data_exfiltration" | "data-exfiltration" => ThreatType::DataExfiltration,
-        "social_engineering" | "social-engineering" => ThreatType::SocialEngineering,
-        "repo_poisoning" | "repo-poisoning" => ThreatType::PromptInjection, // Map to closest type
-        _ => ThreatType::PromptInjection,                                   // Default
+    match s.to_lowercase().replace('-', "_").as_str() {
+        // LLM Safety (Agentic Threats)
+        "prompt_injection" => ThreatType::PromptInjection,
+        "improper_output_handling" => ThreatType::ImproperOutputHandling,
+        "insecure_tool_usage" => ThreatType::InsecureToolUsage,
+        "instruction_override" => ThreatType::InstructionOverride,
+
+        // Secrets Management
+        "hardcoded_secrets" => ThreatType::HardcodedSecrets,
+
+        // Insecure Data Handling
+        "weak_crypto" => ThreatType::WeakCrypto,
+        "sensitive_data_logging" => ThreatType::SensitiveDataLogging,
+        "pii_violations" => ThreatType::PiiViolations,
+        "insecure_deserialization" => ThreatType::InsecureDeserialization,
+
+        // Injection Vulnerabilities
+        "xss" => ThreatType::Xss,
+        "sqli" | "sql_injection" => ThreatType::Sqli,
+        "command_injection" => ThreatType::CommandInjection,
+        "ssrf" => ThreatType::Ssrf,
+        "ssti" => ThreatType::Ssti,
+        "code_injection" => ThreatType::CodeInjection,
+
+        // Authentication & Session
+        "auth_bypass" => ThreatType::AuthBypass,
+        "weak_session_tokens" => ThreatType::WeakSessionTokens,
+        "insecure_password_reset" => ThreatType::InsecurePasswordReset,
+
+        // Supply Chain
+        "malicious_install_scripts" | "install_script_injection" => {
+            ThreatType::MaliciousInstallScripts
+        }
+        "dependency_confusion" => ThreatType::DependencyConfusion,
+        "typosquatting" => ThreatType::Typosquatting,
+        "obfuscated_code" => ThreatType::ObfuscatedCode,
+
+        // Other
+        "path_traversal" => ThreatType::PathTraversal,
+        "prototype_pollution" => ThreatType::PrototypePollution,
+        "backdoor" => ThreatType::Backdoor,
+        "crypto_miner" => ThreatType::CryptoMiner,
+        "data_exfiltration" => ThreatType::DataExfiltration,
+        "social_engineering" => ThreatType::SocialEngineering,
+        "malicious_code" => ThreatType::MaliciousCode,
+
+        // Legacy mappings
+        "repo_poisoning" => ThreatType::PromptInjection,
+
+        // Default to prompt injection for unknown types
+        _ => {
+            tracing::warn!("Unknown threat type '{}', defaulting to PromptInjection", s);
+            ThreatType::PromptInjection
+        }
     }
 }
 
@@ -417,7 +733,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_threat_type() {
+    fn test_parse_threat_type_llm_safety() {
+        // LLM Safety threats
         assert!(matches!(
             parse_threat_type("prompt_injection"),
             ThreatType::PromptInjection
@@ -431,13 +748,176 @@ mod tests {
             ThreatType::PromptInjection
         ));
         assert!(matches!(
+            parse_threat_type("improper_output_handling"),
+            ThreatType::ImproperOutputHandling
+        ));
+        assert!(matches!(
+            parse_threat_type("insecure_tool_usage"),
+            ThreatType::InsecureToolUsage
+        ));
+        assert!(matches!(
+            parse_threat_type("instruction_override"),
+            ThreatType::InstructionOverride
+        ));
+    }
+
+    #[test]
+    fn test_parse_threat_type_secrets() {
+        assert!(matches!(
+            parse_threat_type("hardcoded_secrets"),
+            ThreatType::HardcodedSecrets
+        ));
+    }
+
+    #[test]
+    fn test_parse_threat_type_data_handling() {
+        assert!(matches!(
+            parse_threat_type("weak_crypto"),
+            ThreatType::WeakCrypto
+        ));
+        assert!(matches!(
+            parse_threat_type("sensitive_data_logging"),
+            ThreatType::SensitiveDataLogging
+        ));
+        assert!(matches!(
+            parse_threat_type("pii_violations"),
+            ThreatType::PiiViolations
+        ));
+        assert!(matches!(
+            parse_threat_type("insecure_deserialization"),
+            ThreatType::InsecureDeserialization
+        ));
+    }
+
+    #[test]
+    fn test_parse_threat_type_injection() {
+        assert!(matches!(parse_threat_type("xss"), ThreatType::Xss));
+        assert!(matches!(parse_threat_type("sqli"), ThreatType::Sqli));
+        assert!(matches!(
+            parse_threat_type("sql_injection"),
+            ThreatType::Sqli
+        ));
+        assert!(matches!(
+            parse_threat_type("command_injection"),
+            ThreatType::CommandInjection
+        ));
+        assert!(matches!(parse_threat_type("ssrf"), ThreatType::Ssrf));
+        assert!(matches!(parse_threat_type("ssti"), ThreatType::Ssti));
+        assert!(matches!(
+            parse_threat_type("code_injection"),
+            ThreatType::CodeInjection
+        ));
+    }
+
+    #[test]
+    fn test_parse_threat_type_auth() {
+        assert!(matches!(
+            parse_threat_type("auth_bypass"),
+            ThreatType::AuthBypass
+        ));
+        assert!(matches!(
+            parse_threat_type("weak_session_tokens"),
+            ThreatType::WeakSessionTokens
+        ));
+        assert!(matches!(
+            parse_threat_type("insecure_password_reset"),
+            ThreatType::InsecurePasswordReset
+        ));
+    }
+
+    #[test]
+    fn test_parse_threat_type_supply_chain() {
+        assert!(matches!(
+            parse_threat_type("malicious_install_scripts"),
+            ThreatType::MaliciousInstallScripts
+        ));
+        assert!(matches!(
+            parse_threat_type("install_script_injection"),
+            ThreatType::MaliciousInstallScripts
+        ));
+        assert!(matches!(
+            parse_threat_type("dependency_confusion"),
+            ThreatType::DependencyConfusion
+        ));
+        assert!(matches!(
+            parse_threat_type("typosquatting"),
+            ThreatType::Typosquatting
+        ));
+        assert!(matches!(
+            parse_threat_type("obfuscated_code"),
+            ThreatType::ObfuscatedCode
+        ));
+    }
+
+    #[test]
+    fn test_parse_threat_type_other() {
+        assert!(matches!(
+            parse_threat_type("path_traversal"),
+            ThreatType::PathTraversal
+        ));
+        assert!(matches!(
+            parse_threat_type("prototype_pollution"),
+            ThreatType::PrototypePollution
+        ));
+        assert!(matches!(
+            parse_threat_type("backdoor"),
+            ThreatType::Backdoor
+        ));
+        assert!(matches!(
+            parse_threat_type("crypto_miner"),
+            ThreatType::CryptoMiner
+        ));
+        assert!(matches!(
             parse_threat_type("data_exfiltration"),
             ThreatType::DataExfiltration
         ));
         assert!(matches!(
+            parse_threat_type("social_engineering"),
+            ThreatType::SocialEngineering
+        ));
+    }
+
+    #[test]
+    fn test_parse_threat_type_legacy() {
+        // Legacy mapping
+        assert!(matches!(
             parse_threat_type("repo_poisoning"),
             ThreatType::PromptInjection
         ));
+    }
+
+    #[test]
+    fn test_parse_threat_type_case_insensitive() {
+        // Should handle various case formats
+        assert!(matches!(parse_threat_type("XSS"), ThreatType::Xss));
+        assert!(matches!(parse_threat_type("SQLI"), ThreatType::Sqli));
+        assert!(matches!(
+            parse_threat_type("Command_Injection"),
+            ThreatType::CommandInjection
+        ));
+    }
+
+    #[test]
+    fn test_parse_threat_type_hyphen_to_underscore() {
+        // Should convert hyphens to underscores
+        assert!(matches!(
+            parse_threat_type("command-injection"),
+            ThreatType::CommandInjection
+        ));
+        assert!(matches!(
+            parse_threat_type("data-exfiltration"),
+            ThreatType::DataExfiltration
+        ));
+    }
+
+    #[test]
+    fn test_parse_threat_type_unknown_defaults_to_prompt_injection() {
+        // Unknown types should default to PromptInjection
+        assert!(matches!(
+            parse_threat_type("unknown_threat"),
+            ThreatType::PromptInjection
+        ));
+        assert!(matches!(parse_threat_type(""), ThreatType::PromptInjection));
     }
 
     #[tokio::test]
@@ -445,5 +925,12 @@ mod tests {
         // Scanner should create without API key
         let _scanner = AgenticScanner::new(None);
         let _scanner = AgenticScanner::new(Some("test-key".to_string()));
+    }
+
+    #[test]
+    fn test_model_constants() {
+        // Verify model constants are defined correctly
+        assert_eq!(SCAN_MODEL, "opencode/kimi-k2.5-free");
+        assert_eq!(VERIFICATION_MODEL, "anthropic/claude-opus-4-5");
     }
 }

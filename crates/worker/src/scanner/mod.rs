@@ -266,6 +266,32 @@ impl PackageScanner {
             vec![]
         });
 
+        // Verify threats if any were detected (reduces false positives)
+        let agentic_threats = if !agentic_threats.is_empty() {
+            tracing::info!(
+                "Verifying {} detected threats with secondary model",
+                agentic_threats.len()
+            );
+            match self
+                .agentic_scanner
+                .verify_threats(&extracted, agentic_threats.clone())
+                .await
+            {
+                Ok(verified) => verified,
+                Err(e) => {
+                    tracing::warn!(
+                        "Threat verification failed, keeping original {} threats: {}",
+                        agentic_threats.len(),
+                        e
+                    );
+                    // Fall back to unverified threats if verification fails
+                    agentic_threats
+                }
+            }
+        } else {
+            agentic_threats
+        };
+
         let capabilities = capabilities.unwrap_or_default();
 
         let usage_docs = usage_docs.unwrap_or_else(|e| {

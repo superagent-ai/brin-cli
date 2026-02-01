@@ -26,15 +26,55 @@ impl RiskLevel {
     }
 }
 
-/// Types of agentic threats that can be detected
+/// Types of security threats that can be detected
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "varchar", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum ThreatType {
+    // LLM Safety (Agentic Threats)
     PromptInjection,
+    ImproperOutputHandling,
+    InsecureToolUsage,
     InstructionOverride,
+
+    // Secrets Management
+    HardcodedSecrets,
+
+    // Insecure Data Handling
+    WeakCrypto,
+    SensitiveDataLogging,
+    PiiViolations,
+    InsecureDeserialization,
+
+    // Injection Vulnerabilities
+    Xss,
+    Sqli,
+    CommandInjection,
+    Ssrf,
+    Ssti,
+    CodeInjection,
+
+    // Authentication & Session
+    AuthBypass,
+    WeakSessionTokens,
+    InsecurePasswordReset,
+
+    // Supply Chain
+    MaliciousInstallScripts,
+    DependencyConfusion,
+    Typosquatting,
+    ObfuscatedCode,
+
+    // Other
+    PathTraversal,
+    PrototypePollution,
+    Backdoor,
+    CryptoMiner,
     DataExfiltration,
     SocialEngineering,
+
+    // Legacy (kept for backward compatibility)
+    #[serde(alias = "install_script_injection")]
     InstallScriptInjection,
     MaliciousCode,
 }
@@ -498,15 +538,72 @@ mod tests {
 
     #[test]
     fn test_threat_type_serialization() {
+        // LLM Safety
         assert_eq!(
             serde_json::to_string(&ThreatType::PromptInjection).unwrap(),
             "\"prompt_injection\""
         );
         assert_eq!(
+            serde_json::to_string(&ThreatType::ImproperOutputHandling).unwrap(),
+            "\"improper_output_handling\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ThreatType::InsecureToolUsage).unwrap(),
+            "\"insecure_tool_usage\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ThreatType::InstructionOverride).unwrap(),
+            "\"instruction_override\""
+        );
+
+        // Secrets
+        assert_eq!(
+            serde_json::to_string(&ThreatType::HardcodedSecrets).unwrap(),
+            "\"hardcoded_secrets\""
+        );
+
+        // Data Handling
+        assert_eq!(
+            serde_json::to_string(&ThreatType::WeakCrypto).unwrap(),
+            "\"weak_crypto\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ThreatType::InsecureDeserialization).unwrap(),
+            "\"insecure_deserialization\""
+        );
+
+        // Injection
+        assert_eq!(serde_json::to_string(&ThreatType::Xss).unwrap(), "\"xss\"");
+        assert_eq!(
+            serde_json::to_string(&ThreatType::Sqli).unwrap(),
+            "\"sqli\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ThreatType::CommandInjection).unwrap(),
+            "\"command_injection\""
+        );
+
+        // Supply Chain
+        assert_eq!(
+            serde_json::to_string(&ThreatType::MaliciousInstallScripts).unwrap(),
+            "\"malicious_install_scripts\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ThreatType::Typosquatting).unwrap(),
+            "\"typosquatting\""
+        );
+
+        // Other
+        assert_eq!(
             serde_json::to_string(&ThreatType::DataExfiltration).unwrap(),
             "\"data_exfiltration\""
         );
+        assert_eq!(
+            serde_json::to_string(&ThreatType::Backdoor).unwrap(),
+            "\"backdoor\""
+        );
 
+        // Test deserialization
         assert_eq!(
             serde_json::from_str::<ThreatType>("\"prompt_injection\"").unwrap(),
             ThreatType::PromptInjection
@@ -514,6 +611,20 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<ThreatType>("\"social_engineering\"").unwrap(),
             ThreatType::SocialEngineering
+        );
+        assert_eq!(
+            serde_json::from_str::<ThreatType>("\"xss\"").unwrap(),
+            ThreatType::Xss
+        );
+        assert_eq!(
+            serde_json::from_str::<ThreatType>("\"malicious_install_scripts\"").unwrap(),
+            ThreatType::MaliciousInstallScripts
+        );
+
+        // Test legacy alias deserialization
+        assert_eq!(
+            serde_json::from_str::<ThreatType>("\"install_script_injection\"").unwrap(),
+            ThreatType::InstallScriptInjection
         );
     }
 
