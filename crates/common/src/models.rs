@@ -91,6 +91,8 @@ pub struct Package {
     pub maintainer_count: Option<i32>,
     pub last_publish: Option<DateTime<Utc>>,
     pub capabilities: serde_json::Value,
+    /// Maintainers list as JSON array
+    pub maintainers: Option<serde_json::Value>,
     pub skill_md: Option<String>,
     pub scanned_at: DateTime<Utc>,
     pub scan_version: Option<String>,
@@ -289,6 +291,13 @@ pub struct PublisherInfo {
     pub verified: bool,
 }
 
+/// Maintainer information for API responses
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaintainerInfo {
+    pub name: Option<String>,
+    pub email: Option<String>,
+}
+
 /// Install script information
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InstallScripts {
@@ -360,6 +369,9 @@ pub struct PackageResponse {
     pub trust_score: Option<u8>,
     pub publisher: Option<PublisherInfo>,
     pub weekly_downloads: Option<u64>,
+    pub maintainers: Option<Vec<MaintainerInfo>>,
+    pub maintainer_count: Option<u32>,
+    pub last_publish: Option<DateTime<Utc>>,
     pub install_scripts: InstallScripts,
     pub cves: Vec<CveSummary>,
     pub agentic_threats: Vec<AgenticThreatSummary>,
