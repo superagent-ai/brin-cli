@@ -8,9 +8,9 @@ use axum::{
     Json,
 };
 use common::{
-    AgenticThreatSummary, BulkLookupRequest, CveSummary, InstallScripts, PackageCapabilities,
-    PackageListItem, PackageListResponse, PackageResponse, PaginationParams, PublisherInfo,
-    Registry, ScanJob, ScanPriority, ScanRequest, ScanRequestResponse,
+    AgenticThreatSummary, BulkLookupRequest, CveSummary, InstallScripts, MaintainerInfo,
+    PackageCapabilities, PackageListItem, PackageListResponse, PackageResponse, PaginationParams,
+    PublisherInfo, Registry, ScanJob, ScanPriority, ScanRequest, ScanRequestResponse,
 };
 use serde_json::json;
 use std::io::Write;
@@ -125,6 +125,12 @@ pub async fn get_package(
     let capabilities: PackageCapabilities =
         serde_json::from_value(package.capabilities.clone()).unwrap_or_default();
 
+    // Parse maintainers from JSONB
+    let maintainers: Option<Vec<MaintainerInfo>> = package
+        .maintainers
+        .as_ref()
+        .and_then(|m| serde_json::from_value(m.clone()).ok());
+
     let response = PackageResponse {
         name: package.name,
         version: package.version,
@@ -137,6 +143,9 @@ pub async fn get_package(
             verified,
         }),
         weekly_downloads: package.weekly_downloads.map(|d| d as u64),
+        maintainers,
+        maintainer_count: package.maintainer_count.map(|c| c as u32),
+        last_publish: package.last_publish,
         install_scripts: InstallScripts::default(), // TODO: store in DB
         cves: cves
             .into_iter()
@@ -212,6 +221,12 @@ pub async fn get_package_version(
     let capabilities: PackageCapabilities =
         serde_json::from_value(package.capabilities.clone()).unwrap_or_default();
 
+    // Parse maintainers from JSONB
+    let maintainers: Option<Vec<MaintainerInfo>> = package
+        .maintainers
+        .as_ref()
+        .and_then(|m| serde_json::from_value(m.clone()).ok());
+
     let response = PackageResponse {
         name: package.name,
         version: package.version,
@@ -224,6 +239,9 @@ pub async fn get_package_version(
             verified,
         }),
         weekly_downloads: package.weekly_downloads.map(|d| d as u64),
+        maintainers,
+        maintainer_count: package.maintainer_count.map(|c| c as u32),
+        last_publish: package.last_publish,
         install_scripts: InstallScripts::default(),
         cves: cves
             .into_iter()
@@ -307,6 +325,12 @@ pub async fn bulk_lookup(
         let capabilities: PackageCapabilities =
             serde_json::from_value(package.capabilities.clone()).unwrap_or_default();
 
+        // Parse maintainers from JSONB
+        let maintainers: Option<Vec<MaintainerInfo>> = package
+            .maintainers
+            .as_ref()
+            .and_then(|m| serde_json::from_value(m.clone()).ok());
+
         responses.push(PackageResponse {
             name: package.name,
             version: package.version,
@@ -319,6 +343,9 @@ pub async fn bulk_lookup(
                 verified,
             }),
             weekly_downloads: package.weekly_downloads.map(|d| d as u64),
+            maintainers,
+            maintainer_count: package.maintainer_count.map(|c| c as u32),
+            last_publish: package.last_publish,
             install_scripts: InstallScripts::default(),
             cves: cves
                 .into_iter()
