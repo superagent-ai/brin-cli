@@ -162,12 +162,44 @@ fn print_critical_assessment(assessment: &PackageResponse) {
     for threat in &assessment.agentic_threats {
         if threat.confidence > 0.8 {
             let threat_desc = match threat.threat_type {
-                common::ThreatType::MaliciousCode => "malware detected",
+                // LLM Safety
                 common::ThreatType::PromptInjection => "prompt injection attack",
+                common::ThreatType::ImproperOutputHandling => "improper output handling",
+                common::ThreatType::InsecureToolUsage => "insecure tool usage",
                 common::ThreatType::InstructionOverride => "instruction override attack",
+                // Secrets
+                common::ThreatType::HardcodedSecrets => "hardcoded secrets",
+                // Data Handling
+                common::ThreatType::WeakCrypto => "weak cryptography",
+                common::ThreatType::SensitiveDataLogging => "sensitive data logging",
+                common::ThreatType::PiiViolations => "PII violations",
+                common::ThreatType::InsecureDeserialization => "insecure deserialization",
+                // Injection
+                common::ThreatType::Xss => "XSS vulnerability",
+                common::ThreatType::Sqli => "SQL injection",
+                common::ThreatType::CommandInjection => "command injection",
+                common::ThreatType::Ssrf => "SSRF vulnerability",
+                common::ThreatType::Ssti => "SSTI vulnerability",
+                common::ThreatType::CodeInjection => "code injection",
+                // Auth
+                common::ThreatType::AuthBypass => "authentication bypass",
+                common::ThreatType::WeakSessionTokens => "weak session tokens",
+                common::ThreatType::InsecurePasswordReset => "insecure password reset",
+                // Supply Chain
+                common::ThreatType::MaliciousInstallScripts => "malicious install script",
+                common::ThreatType::DependencyConfusion => "dependency confusion",
+                common::ThreatType::Typosquatting => "typosquatting",
+                common::ThreatType::ObfuscatedCode => "obfuscated code",
+                // Other
+                common::ThreatType::PathTraversal => "path traversal",
+                common::ThreatType::PrototypePollution => "prototype pollution",
+                common::ThreatType::Backdoor => "backdoor detected",
+                common::ThreatType::CryptoMiner => "crypto miner",
                 common::ThreatType::DataExfiltration => "data exfiltration attempt",
                 common::ThreatType::SocialEngineering => "social engineering attack",
+                // Legacy
                 common::ThreatType::InstallScriptInjection => "malicious install script",
+                common::ThreatType::MaliciousCode => "malware detected",
             };
             items.push(format!("{}: {}", "threat".red(), threat_desc));
         }
