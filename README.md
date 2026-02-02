@@ -232,7 +232,7 @@ if you're building an agent that installs packages, sus is for you.
 ## roadmap
 
 - [x] npm support
-- [ ] pypi support
+- [x] pypi support
 - [ ] crates.io support
 - [ ] go modules support
 - [ ] private registry support
