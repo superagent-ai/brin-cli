@@ -56,6 +56,7 @@ url = { version = "2.5", features = ["serde"] }
 semver = { version = "1.0", features = ["serde"] }
 flate2 = "1.0"
 tar = "0.4"
+zip = "2.2"
 tempfile = "3.14"
 dotenvy = "0.15"
 async-trait = "0.1"

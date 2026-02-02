@@ -71,17 +71,34 @@ impl CveScanner {
         }
     }
 
-    /// Scan for CVEs affecting a package version
+    /// Scan for CVEs affecting a package version (defaults to npm ecosystem)
     pub async fn scan(&self, package: &str, version: &str) -> Result<Vec<CveSummary>> {
+        self.scan_with_ecosystem(package, version, "npm").await
+    }
+
+    /// Scan for CVEs affecting a package version with a specific ecosystem
+    pub async fn scan_with_ecosystem(
+        &self,
+        package: &str,
+        version: &str,
+        ecosystem: &str,
+    ) -> Result<Vec<CveSummary>> {
         let url = format!("{}/query", self.osv_url);
 
         let request = OsvQueryRequest {
             package: OsvPackage {
                 name: package.to_string(),
-                ecosystem: "npm".to_string(),
+                ecosystem: ecosystem.to_string(),
             },
             version: version.to_string(),
         };
+
+        tracing::debug!(
+            package,
+            version,
+            ecosystem,
+            "Querying OSV for vulnerabilities"
+        );
 
         let response = self.client.post(&url).json(&request).send().await?;
 
@@ -97,6 +114,16 @@ impl CveScanner {
         let osv_response: OsvQueryResponse = response.json().await?;
 
         let vulns = osv_response.vulns.unwrap_or_default();
+
+        if !vulns.is_empty() {
+            tracing::info!(
+                package,
+                version,
+                ecosystem,
+                count = vulns.len(),
+                "Found vulnerabilities"
+            );
+        }
 
         let cves: Vec<CveSummary> = vulns
             .into_iter()

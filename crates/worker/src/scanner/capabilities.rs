@@ -1,10 +1,11 @@
 //! Capability extraction using static analysis
 
 use super::npm::ExtractedPackage;
+use super::pypi::ExtractedPypiPackage;
 use anyhow::Result;
 use common::{
-    EnvironmentCapabilities, FilesystemCapabilities, NetworkCapabilities, PackageCapabilities,
-    PathPermission, ProcessCapabilities,
+    EnvironmentCapabilities, FilesystemCapabilities, NativeCapabilities, NetworkCapabilities,
+    PackageCapabilities, PathPermission, ProcessCapabilities,
 };
 
 /// Known native npm modules
@@ -17,6 +18,22 @@ const KNOWN_NATIVE_MODULES: &[&str] = &[
     "nan",
     "ffi-napi",
     "ref-napi",
+];
+
+/// Known Python native extension packages
+const KNOWN_PYTHON_NATIVE_PACKAGES: &[&str] = &[
+    "cython",
+    "cffi",
+    "pybind11",
+    "numpy",
+    "scipy",
+    "pandas",
+    "pillow",
+    "lxml",
+    "cryptography",
+    "psycopg2",
+    "mysqlclient",
+    "grpcio",
 ];
 
 /// Capability extractor using regex-based static analysis
@@ -65,6 +82,393 @@ impl CapabilityExtractor {
         caps.environment.accessed_vars.dedup();
 
         Ok(caps)
+    }
+
+    /// Extract capabilities from a Python package
+    pub fn extract_python(&self, extracted: &ExtractedPypiPackage) -> Result<PackageCapabilities> {
+        let mut caps = PackageCapabilities::default();
+
+        // Check for native extensions
+        caps.native.has_native = extracted.has_c_extension || extracted.has_cython;
+        if extracted.has_c_extension {
+            caps.native.native_modules.push("C extension".to_string());
+        }
+        if extracted.has_cython {
+            caps.native.native_modules.push("Cython".to_string());
+        }
+
+        // Analyze Python source files
+        for file in &extracted.source_files {
+            self.analyze_python_source(&file.content, &mut caps);
+        }
+
+        // Deduplicate
+        caps.network.domains.sort();
+        caps.network.domains.dedup();
+        caps.network.protocols.sort();
+        caps.network.protocols.dedup();
+        caps.process.commands.sort();
+        caps.process.commands.dedup();
+        caps.environment.accessed_vars.sort();
+        caps.environment.accessed_vars.dedup();
+        caps.native.native_modules.sort();
+        caps.native.native_modules.dedup();
+
+        Ok(caps)
+    }
+
+    /// Analyze Python source code for capabilities
+    fn analyze_python_source(&self, source: &str, caps: &mut PackageCapabilities) {
+        // Network detection
+        self.detect_python_network(source, &mut caps.network);
+
+        // Filesystem detection
+        self.detect_python_filesystem(source, &mut caps.filesystem);
+
+        // Process detection
+        self.detect_python_process(source, &mut caps.process);
+
+        // Environment detection
+        self.detect_python_environment(source, &mut caps.environment);
+
+        // Native module detection
+        self.detect_python_native(source, &mut caps.native);
+    }
+
+    /// Detect network capabilities in Python code
+    fn detect_python_network(&self, source: &str, caps: &mut NetworkCapabilities) {
+        // Common Python network patterns
+        let network_patterns = [
+            // requests library
+            "requests.get",
+            "requests.post",
+            "requests.put",
+            "requests.delete",
+            "requests.patch",
+            "requests.request",
+            // urllib
+            "urllib.request",
+            "urllib.urlopen",
+            "urlopen(",
+            // httpx
+            "httpx.get",
+            "httpx.post",
+            "httpx.AsyncClient",
+            "httpx.Client",
+            // aiohttp
+            "aiohttp.ClientSession",
+            "aiohttp.request",
+            // socket
+            "socket.socket",
+            "socket.create_connection",
+            // httplib/http.client
+            "http.client",
+            "HTTPConnection",
+            "HTTPSConnection",
+        ];
+
+        for pattern in network_patterns {
+            if source.contains(pattern) {
+                caps.makes_requests = true;
+                break;
+            }
+        }
+
+        // Also check for import statements
+        let import_patterns = [
+            "import requests",
+            "from requests",
+            "import urllib",
+            "from urllib",
+            "import httpx",
+            "from httpx",
+            "import aiohttp",
+            "from aiohttp",
+            "import socket",
+            "from socket",
+        ];
+
+        for pattern in import_patterns {
+            if source.contains(pattern) {
+                caps.makes_requests = true;
+                break;
+            }
+        }
+
+        // Extract domains from URLs
+        self.extract_domains(source, caps);
+
+        // Detect protocols
+        if source.contains("http://") {
+            caps.protocols.push("http".to_string());
+        }
+        if source.contains("https://") {
+            caps.protocols.push("https".to_string());
+        }
+        if source.contains("ws://") || source.contains("wss://") {
+            caps.protocols.push("websocket".to_string());
+        }
+        if source.contains("socket.SOCK_STREAM") {
+            caps.protocols.push("tcp".to_string());
+        }
+        if source.contains("socket.SOCK_DGRAM") {
+            caps.protocols.push("udp".to_string());
+        }
+    }
+
+    /// Detect filesystem capabilities in Python code
+    fn detect_python_filesystem(&self, source: &str, caps: &mut FilesystemCapabilities) {
+        // Read patterns
+        let read_patterns = [
+            "open(",
+            ".read(",
+            ".readline(",
+            ".readlines(",
+            "Path.read_text",
+            "Path.read_bytes",
+            "os.listdir",
+            "os.scandir",
+            "pathlib.Path",
+            "glob.glob",
+            "glob.iglob",
+            "shutil.copy",
+            "json.load(",
+            "yaml.safe_load",
+            "configparser",
+        ];
+
+        for pattern in read_patterns {
+            if source.contains(pattern) {
+                caps.reads = true;
+                break;
+            }
+        }
+
+        // Write patterns
+        let write_patterns = [
+            ".write(",
+            ".writelines(",
+            "Path.write_text",
+            "Path.write_bytes",
+            "os.mkdir",
+            "os.makedirs",
+            "os.remove",
+            "os.unlink",
+            "os.rmdir",
+            "shutil.rmtree",
+            "shutil.move",
+            "shutil.copy",
+            "json.dump(",
+            "yaml.dump",
+        ];
+
+        for pattern in write_patterns {
+            if source.contains(pattern) {
+                caps.writes = true;
+                break;
+            }
+        }
+
+        // Check for write mode in open()
+        if source.contains("open(") {
+            let write_modes = [
+                "'w'", "\"w\"", "'a'", "\"a\"", "'wb'", "\"wb\"", "'ab'", "\"ab\"",
+            ];
+            for mode in write_modes {
+                if source.contains(mode) {
+                    caps.writes = true;
+                    break;
+                }
+            }
+        }
+
+        // Extract paths
+        self.extract_python_paths(source, caps);
+    }
+
+    /// Extract file paths from Python source
+    fn extract_python_paths(&self, source: &str, caps: &mut FilesystemCapabilities) {
+        let path_indicators = [
+            "/tmp/",
+            "/var/",
+            "/etc/",
+            "/home/",
+            "/usr/",
+            "~/.config",
+            "~/.local",
+            ".env",
+            "__pycache__",
+            "site-packages",
+            "requirements.txt",
+            "setup.py",
+            "pyproject.toml",
+        ];
+
+        for indicator in path_indicators {
+            if source.contains(indicator) {
+                let mode = match (caps.reads, caps.writes) {
+                    (true, true) => "rw",
+                    (true, false) => "r",
+                    (false, true) => "w",
+                    _ => "r",
+                };
+
+                caps.paths.push(PathPermission {
+                    path: indicator.to_string(),
+                    mode: mode.to_string(),
+                });
+            }
+        }
+    }
+
+    /// Detect process spawning capabilities in Python code
+    fn detect_python_process(&self, source: &str, caps: &mut ProcessCapabilities) {
+        let spawn_patterns = [
+            "subprocess.run",
+            "subprocess.call",
+            "subprocess.Popen",
+            "subprocess.check_output",
+            "subprocess.check_call",
+            "os.system(",
+            "os.popen(",
+            "os.exec",
+            "os.spawn",
+            "os.fork(",
+            "multiprocessing.Process",
+            "concurrent.futures.ProcessPoolExecutor",
+        ];
+
+        for pattern in spawn_patterns {
+            if source.contains(pattern) {
+                caps.spawns_children = true;
+                break;
+            }
+        }
+
+        // Also check imports
+        let import_patterns = [
+            "import subprocess",
+            "from subprocess",
+            "import multiprocessing",
+            "from multiprocessing",
+        ];
+
+        for pattern in import_patterns {
+            if source.contains(pattern) {
+                caps.spawns_children = true;
+                break;
+            }
+        }
+
+        // Extract command names
+        self.extract_python_commands(source, caps);
+    }
+
+    /// Extract command names from Python subprocess calls
+    fn extract_python_commands(&self, source: &str, caps: &mut ProcessCapabilities) {
+        let common_commands = [
+            "python", "pip", "git", "curl", "wget", "sh", "bash", "rm", "chmod", "chown", "sudo",
+            "apt", "yum", "npm", "node", "docker", "kubectl",
+        ];
+
+        for cmd in common_commands {
+            // Look for command in various subprocess patterns
+            let patterns = [
+                format!("subprocess.run(['{}", cmd),
+                format!("subprocess.run([\"{}", cmd),
+                format!("subprocess.call(['{}", cmd),
+                format!("subprocess.call([\"{}", cmd),
+                format!("Popen(['{}", cmd),
+                format!("Popen([\"{}", cmd),
+                format!("os.system('{}", cmd),
+                format!("os.system(\"{}", cmd),
+            ];
+
+            for pattern in patterns {
+                if source.contains(&pattern) {
+                    caps.commands.push(cmd.to_string());
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Detect environment variable access in Python code
+    fn detect_python_environment(&self, source: &str, caps: &mut EnvironmentCapabilities) {
+        // os.environ access
+        let env_patterns = [
+            "os.environ[",
+            "os.environ.get(",
+            "os.getenv(",
+            "environ.get(",
+            "environ[",
+        ];
+
+        for pattern in env_patterns {
+            let mut search_from = 0;
+            while let Some(start) = source[search_from..].find(pattern) {
+                let abs_start = search_from + start + pattern.len();
+                if abs_start >= source.len() {
+                    break;
+                }
+
+                // Find the variable name
+                let remaining = &source[abs_start..];
+                let end_chars = [')', ']', ',', ' '];
+
+                // Skip quote character
+                let var_start = if remaining.starts_with('"') || remaining.starts_with('\'') {
+                    1
+                } else {
+                    0
+                };
+
+                if var_start >= remaining.len() {
+                    break;
+                }
+
+                let remaining = &remaining[var_start..];
+                let var_end = remaining
+                    .find(|c: char| c == '"' || c == '\'' || end_chars.contains(&c))
+                    .unwrap_or(remaining.len());
+
+                let var_name = &remaining[..var_end];
+
+                if !var_name.is_empty() && var_name.len() < 50 {
+                    caps.accessed_vars.push(var_name.to_string());
+                }
+
+                search_from = abs_start + var_end + 1;
+            }
+        }
+    }
+
+    /// Detect native module usage in Python code
+    fn detect_python_native(&self, source: &str, caps: &mut NativeCapabilities) {
+        // Check for imports of known native packages
+        for pkg in KNOWN_PYTHON_NATIVE_PACKAGES {
+            let patterns = [format!("import {}", pkg), format!("from {} import", pkg)];
+
+            for pattern in patterns {
+                if source.contains(&pattern) {
+                    caps.has_native = true;
+                    caps.native_modules.push(pkg.to_string());
+                    break;
+                }
+            }
+        }
+
+        // Check for ctypes usage
+        if source.contains("import ctypes") || source.contains("from ctypes") {
+            caps.has_native = true;
+            caps.native_modules.push("ctypes".to_string());
+        }
+
+        // Check for CFFI
+        if source.contains("from cffi import") || source.contains("import cffi") {
+            caps.has_native = true;
+            caps.native_modules.push("cffi".to_string());
+        }
     }
 
     /// Analyze source code for capabilities

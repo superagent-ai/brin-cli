@@ -2,7 +2,8 @@
 
 use anyhow::{Context, Result};
 use common::{
-    BulkLookupRequest, PackageResponse, PackageVersionPair, ScanRequest, ScanRequestResponse,
+    BulkLookupRequest, PackageResponse, PackageVersionPair, Registry, ScanRequest,
+    ScanRequestResponse,
 };
 use reqwest::Client;
 
@@ -70,18 +71,28 @@ impl SusClient {
             .context("Failed to parse API response")
     }
 
-    /// Request a scan for a package
+    /// Request a scan for a package (defaults to npm registry)
     pub async fn request_scan(
         &self,
         name: &str,
         version: Option<&str>,
+    ) -> Result<ScanRequestResponse> {
+        self.request_scan_with_registry(name, version, None).await
+    }
+
+    /// Request a scan for a package with a specific registry
+    pub async fn request_scan_with_registry(
+        &self,
+        name: &str,
+        version: Option<&str>,
+        registry: Option<Registry>,
     ) -> Result<ScanRequestResponse> {
         let url = format!("{}/v1/scan", self.base_url);
 
         let request = ScanRequest {
             name: name.to_string(),
             version: version.map(String::from),
-            registry: None, // Default to npm
+            registry,
         };
 
         let response = self
