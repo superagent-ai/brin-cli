@@ -1,8 +1,12 @@
-//! Remove command - remove packages
+//! Remove command - remove packages and clean up docs
 
+use crate::commands::add::{remove_from_agents_index, to_doc_name};
 use anyhow::Result;
 use colored::Colorize;
 use std::process::Command;
+
+/// Directory for package documentation
+const DOCS_DIR: &str = ".sus-docs";
 
 /// Run the remove command
 pub async fn run(packages: Vec<String>) -> Result<()> {
@@ -23,12 +27,20 @@ pub async fn run(packages: Vec<String>) -> Result<()> {
 
         println!("  {} removed {}", "✓".green(), package);
 
-        // Remove SKILL.md if it exists
-        let skill_path = format!(".sus/{}.skill.md", package.replace('/', "__"));
-        if std::path::Path::new(&skill_path).exists() {
-            if let Err(e) = std::fs::remove_file(&skill_path) {
-                tracing::warn!("Failed to remove {}: {}", skill_path, e);
+        // Remove doc file from .sus-docs/
+        let doc_name = to_doc_name(package);
+        let doc_path = format!("{}/{}.md", DOCS_DIR, doc_name);
+        if std::path::Path::new(&doc_path).exists() {
+            if let Err(e) = std::fs::remove_file(&doc_path) {
+                tracing::warn!("Failed to remove {}: {}", doc_path, e);
+            } else {
+                println!("   {} removed {}", "🗑️".dimmed(), doc_path);
             }
+        }
+
+        // Remove from AGENTS.md index
+        if let Err(e) = remove_from_agents_index(package) {
+            tracing::debug!("Failed to update AGENTS.md index: {}", e);
         }
     }
 

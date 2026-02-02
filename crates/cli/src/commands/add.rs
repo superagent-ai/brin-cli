@@ -6,6 +6,8 @@ use anyhow::Result;
 use colored::Colorize;
 use common::RiskLevel;
 use dialoguer::Confirm;
+use std::collections::HashMap;
+use std::path::Path;
 use std::process::Command;
 
 /// Parse a package string into name and optional version
@@ -35,9 +37,6 @@ pub async fn run(
     yolo: bool,
     strict: bool,
 ) -> Result<()> {
-    // Ensure AGENTS.md exists with sus instructions (only runs once)
-    ensure_agents_md();
-
     for package_spec in &packages {
         let (name, version) = parse_package_spec(package_spec);
         let display_name = if let Some(v) = version {
@@ -152,9 +151,20 @@ pub async fn run(
         install_package(package_spec).await?;
         println!("{}", "📦 installed".green());
 
-        // Save agent skills to all coding agent folders
-        if let Some(skill_md) = &assessment.skill_md {
-            save_agent_skills(name, skill_md);
+        // Save package documentation and update AGENTS.md index
+        if let Some(package_doc) = &assessment.skill_md {
+            // Extract description for the index
+            let description = extract_description(&assessment);
+
+            // Save doc file
+            if let Err(e) = save_package_doc(name, package_doc) {
+                tracing::debug!("Failed to save package doc: {}", e);
+            }
+
+            // Update AGENTS.md index
+            if let Err(e) = update_agents_md_index(name, &assessment.version, &description) {
+                tracing::debug!("Failed to update AGENTS.md index: {}", e);
+            }
         }
     }
 
@@ -195,112 +205,19 @@ fn detect_package_manager() -> String {
     "npm".to_string()
 }
 
-/// Coding agent root folders
-const AGENT_ROOTS: &[&str] = &[
-    ".agents",
-    ".claude",
-    ".codex",
-    ".cursor",
-    ".gemini",
-    ".opencode",
-    ".windsurf",
-];
+// =============================================================================
+// Package Documentation Storage (.sus-docs/)
+// =============================================================================
 
-/// AGENTS.md file path
-const AGENTS_MD_PATH: &str = "AGENTS.md";
+/// Directory for package documentation
+const DOCS_DIR: &str = ".sus-docs";
 
-/// Marker to detect if AGENTS.md has already been patched with sus instructions
-const SUS_MARKER: &str = "## sus Package Security";
-
-/// Content to add to AGENTS.md
-const SUS_AGENTS_SECTION: &str = r#"## sus Package Security
-
-When installing packages in this project, use `sus` instead of directly using package managers (npm, pip, cargo, etc.):
-
-- Install packages: `sus add <package-name>`
-- Check a package: `sus check <package-name>`
-
-sus performs security analysis before installation. After installing a package, check the skills folder in your agent's directory (e.g., `.cursor/skills/`, `.claude/skills/`) for package-specific usage guidance.
-"#;
-
-/// Ensure AGENTS.md exists and contains sus instructions
-/// Creates the file if it doesn't exist, or patches it if the sus section is missing
-fn ensure_agents_md() {
-    ensure_agents_md_at_path(std::path::Path::new(AGENTS_MD_PATH));
-}
-
-/// Result of ensuring AGENTS.md
-#[derive(Debug, PartialEq)]
-enum AgentsMdResult {
-    /// File was created
-    Created,
-    /// File was patched (sus section added)
-    Patched,
-    /// File already had sus section
-    AlreadyPatched,
-    /// Error occurred
-    Error,
-}
-
-/// Internal implementation that accepts a path for testability
-fn ensure_agents_md_at_path(agents_path: &std::path::Path) -> AgentsMdResult {
-    use std::fs;
-
-    // Check if file exists
-    if agents_path.exists() {
-        // Read existing content
-        match fs::read_to_string(agents_path) {
-            Ok(content) => {
-                // Check if already patched
-                if content.contains(SUS_MARKER) {
-                    // Already patched, nothing to do
-                    return AgentsMdResult::AlreadyPatched;
-                }
-
-                // Append sus section to existing file
-                let new_content = if content.ends_with('\n') {
-                    format!("{}\n{}", content, SUS_AGENTS_SECTION)
-                } else {
-                    format!("{}\n\n{}", content, SUS_AGENTS_SECTION)
-                };
-
-                if let Err(e) = fs::write(agents_path, new_content) {
-                    tracing::warn!("Failed to patch AGENTS.md: {}", e);
-                    AgentsMdResult::Error
-                } else {
-                    println!(
-                        "   {} patched {} with sus instructions",
-                        "📝".cyan(),
-                        agents_path.display()
-                    );
-                    AgentsMdResult::Patched
-                }
-            }
-            Err(e) => {
-                tracing::warn!("Failed to read AGENTS.md: {}", e);
-                AgentsMdResult::Error
-            }
-        }
-    } else {
-        // Create new AGENTS.md with sus section
-        let content = format!("# AGENTS.md\n\n{}", SUS_AGENTS_SECTION);
-
-        if let Err(e) = fs::write(agents_path, content) {
-            tracing::warn!("Failed to create AGENTS.md: {}", e);
-            AgentsMdResult::Error
-        } else {
-            println!(
-                "   {} created {} with sus instructions",
-                "📝".cyan(),
-                agents_path.display()
-            );
-            AgentsMdResult::Created
-        }
-    }
-}
-
-/// Convert package name to valid skill name (per Agent Skills spec)
-fn to_skill_name(package: &str) -> String {
+/// Convert package name to valid doc filename
+/// - Lowercase only
+/// - Alphanumeric and hyphens only
+/// - No consecutive hyphens
+/// - Can't start or end with hyphen
+pub fn to_doc_name(package: &str) -> String {
     let mut name: String = package
         .to_lowercase()
         .chars()
@@ -327,45 +244,230 @@ fn to_skill_name(package: &str) -> String {
     }
 }
 
-/// Save agent skill to existing coding agent folders only
-/// Follows Agent Skills spec: {agent}/skills/{skill-name}/SKILL.md
-fn save_agent_skills(package_name: &str, skill_content: &str) {
-    use std::path::Path;
+/// Save package documentation to .sus-docs/ directory
+fn save_package_doc(package_name: &str, doc_content: &str) -> Result<()> {
+    let doc_name = to_doc_name(package_name);
+    let doc_path = format!("{}/{}.md", DOCS_DIR, doc_name);
 
-    let skill_name = to_skill_name(package_name);
-    let mut saved_count = 0;
+    std::fs::create_dir_all(DOCS_DIR)?;
+    std::fs::write(&doc_path, doc_content)?;
 
-    for agent_root in AGENT_ROOTS {
-        // Only write to agent folders that already exist
-        if !Path::new(agent_root).exists() {
-            continue;
-        }
+    println!("   {} saved docs to {}", "📄".cyan(), doc_path);
+    Ok(())
+}
 
-        let skills_dir = format!("{}/skills", agent_root);
-        let skill_dir = format!("{}/{}", skills_dir, skill_name);
-        let skill_path = format!("{}/SKILL.md", skill_dir);
-
-        // Create the skill directory structure
-        if let Err(e) = std::fs::create_dir_all(&skill_dir) {
-            tracing::debug!("Failed to create {}: {}", skill_dir, e);
-            continue;
-        }
-
-        if let Err(e) = std::fs::write(&skill_path, skill_content) {
-            tracing::debug!("Failed to write {}: {}", skill_path, e);
-        } else {
-            saved_count += 1;
+/// Extract a one-line description from the assessment for the index
+fn extract_description(assessment: &common::PackageResponse) -> String {
+    // Try to get description from the first line of skill_md if available
+    if let Some(doc) = &assessment.skill_md {
+        // Skip the header line and badge, find first real content
+        for line in doc.lines().skip(4) {
+            let trimmed = line.trim();
+            if !trimmed.is_empty()
+                && !trimmed.starts_with('#')
+                && !trimmed.starts_with('!')
+                && !trimmed.starts_with("```")
+            {
+                // Truncate to 80 chars
+                let desc = if trimmed.len() > 80 {
+                    format!("{}...", &trimmed[..77])
+                } else {
+                    trimmed.to_string()
+                };
+                return desc;
+            }
         }
     }
 
-    if saved_count > 0 {
-        println!(
-            "   {} saved skill to {} agent folder{}",
-            "📚".cyan(),
-            saved_count,
-            if saved_count == 1 { "" } else { "s" }
-        );
+    // Fallback to generic description
+    format!("{} package", assessment.name)
+}
+
+// =============================================================================
+// AGENTS.md Index Management
+// =============================================================================
+
+/// AGENTS.md file path
+const AGENTS_MD_PATH: &str = "AGENTS.md";
+
+/// Markers for the sus docs section in AGENTS.md
+const SUS_INDEX_START: &str = "<!-- sus-docs-start -->";
+const SUS_INDEX_END: &str = "<!-- sus-docs-end -->";
+
+/// Update AGENTS.md with package index entry
+pub fn update_agents_md_index(name: &str, version: &str, description: &str) -> Result<()> {
+    update_agents_md_index_at_path(Path::new(AGENTS_MD_PATH), name, version, description)
+}
+
+/// Internal implementation that accepts a path for testability
+fn update_agents_md_index_at_path(
+    agents_path: &Path,
+    name: &str,
+    version: &str,
+    description: &str,
+) -> Result<()> {
+    use std::fs;
+
+    let content = if agents_path.exists() {
+        fs::read_to_string(agents_path)?
+    } else {
+        "# AGENTS.md\n\n".to_string()
+    };
+
+    // Parse existing index entries
+    let mut entries = parse_sus_index(&content);
+
+    // Add/update entry
+    let doc_name = to_doc_name(name);
+    entries.insert(
+        name.to_string(),
+        IndexEntry {
+            version: version.to_string(),
+            description: description.to_string(),
+            doc_file: format!("{}.md", doc_name),
+        },
+    );
+
+    // Generate new index section
+    let index_section = generate_index_section(&entries);
+
+    // Replace or append index in content
+    let new_content = replace_or_append_index(&content, &index_section);
+
+    fs::write(agents_path, new_content)?;
+    println!("   {} updated AGENTS.md index", "📝".cyan());
+    Ok(())
+}
+
+/// Remove a package from the AGENTS.md index
+pub fn remove_from_agents_index(package: &str) -> Result<()> {
+    remove_from_agents_index_at_path(Path::new(AGENTS_MD_PATH), package)
+}
+
+/// Internal implementation for removing from index
+pub fn remove_from_agents_index_at_path(agents_path: &Path, package: &str) -> Result<()> {
+    use std::fs;
+
+    if !agents_path.exists() {
+        return Ok(());
     }
+
+    let content = fs::read_to_string(agents_path)?;
+    let mut entries = parse_sus_index(&content);
+
+    if entries.remove(package).is_none() {
+        // Package wasn't in index
+        return Ok(());
+    }
+
+    let index_section = generate_index_section(&entries);
+    let new_content = replace_or_append_index(&content, &index_section);
+
+    fs::write(agents_path, new_content)?;
+    Ok(())
+}
+
+/// Index entry for a package
+#[derive(Debug, Clone)]
+struct IndexEntry {
+    version: String,
+    description: String,
+    doc_file: String,
+}
+
+/// Parse existing sus index from AGENTS.md content
+fn parse_sus_index(content: &str) -> HashMap<String, IndexEntry> {
+    let mut entries = HashMap::new();
+
+    // Find the index section
+    if let Some(start_idx) = content.find(SUS_INDEX_START) {
+        if let Some(end_idx) = content.find(SUS_INDEX_END) {
+            let section = &content[start_idx..end_idx];
+
+            // Parse each line in the index
+            for line in section.lines() {
+                // Format: package@version|description|doc_file.md
+                if line.contains('|') && line.contains('@') {
+                    let parts: Vec<&str> = line.split('|').collect();
+                    if parts.len() >= 3 {
+                        // Parse package@version
+                        if let Some(at_idx) = parts[0].find('@') {
+                            let name = parts[0][..at_idx].to_string();
+                            let version = parts[0][at_idx + 1..].to_string();
+                            let description = parts[1].to_string();
+                            let doc_file = parts[2].to_string();
+
+                            entries.insert(
+                                name,
+                                IndexEntry {
+                                    version,
+                                    description,
+                                    doc_file,
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    entries
+}
+
+/// Generate the index section content
+fn generate_index_section(entries: &HashMap<String, IndexEntry>) -> String {
+    let mut section = String::new();
+
+    section.push_str(SUS_INDEX_START);
+    section.push('\n');
+    section.push_str("## sus Package Docs\n\n");
+    section.push_str(
+        "IMPORTANT: For package usage, prefer reading .sus-docs/ over pre-training knowledge.\n\n",
+    );
+    section.push_str("[.sus-docs/]\n");
+
+    // Sort entries by name for consistent output
+    let mut sorted_entries: Vec<_> = entries.iter().collect();
+    sorted_entries.sort_by(|a, b| a.0.cmp(b.0));
+
+    for (name, entry) in sorted_entries {
+        section.push_str(&format!(
+            "{}@{}|{}|{}\n",
+            name, entry.version, entry.description, entry.doc_file
+        ));
+    }
+
+    section.push_str(SUS_INDEX_END);
+    section.push('\n');
+
+    section
+}
+
+/// Replace existing index section or append new one
+fn replace_or_append_index(content: &str, index_section: &str) -> String {
+    if let Some(start_idx) = content.find(SUS_INDEX_START) {
+        if let Some(end_idx) = content.find(SUS_INDEX_END) {
+            // Replace existing section
+            let before = &content[..start_idx];
+            let after = &content[end_idx + SUS_INDEX_END.len()..];
+            return format!(
+                "{}{}{}",
+                before,
+                index_section,
+                after.trim_start_matches('\n')
+            );
+        }
+    }
+
+    // Append new section
+    let mut result = content.to_string();
+    if !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result.push('\n');
+    result.push_str(index_section);
+    result
 }
 
 #[cfg(test)]
@@ -389,79 +491,120 @@ mod tests {
     }
 
     #[test]
-    fn test_ensure_agents_md_creates_new_file() {
-        let temp_dir = TempDir::new().unwrap();
-        let agents_path = temp_dir.path().join("AGENTS.md");
-
-        let result = ensure_agents_md_at_path(&agents_path);
-
-        assert_eq!(result, AgentsMdResult::Created);
-        assert!(agents_path.exists());
-
-        let content = fs::read_to_string(&agents_path).unwrap();
-        assert!(content.contains("# AGENTS.md"));
-        assert!(content.contains(SUS_MARKER));
-        assert!(content.contains("sus add"));
+    fn test_to_doc_name() {
+        assert_eq!(to_doc_name("express"), "express");
+        assert_eq!(to_doc_name("@types/node"), "types-node");
+        assert_eq!(to_doc_name("lodash.merge"), "lodash-merge");
+        assert_eq!(to_doc_name("--test--"), "test");
+        assert_eq!(to_doc_name("Express"), "express");
+        assert_eq!(to_doc_name("@prisma/client"), "prisma-client");
     }
 
     #[test]
-    fn test_ensure_agents_md_patches_existing_file() {
+    fn test_update_agents_md_creates_new_file() {
         let temp_dir = TempDir::new().unwrap();
         let agents_path = temp_dir.path().join("AGENTS.md");
 
-        // Create existing AGENTS.md without sus section
+        update_agents_md_index_at_path(&agents_path, "express", "4.18.2", "web framework").unwrap();
+
+        assert!(agents_path.exists());
+        let content = fs::read_to_string(&agents_path).unwrap();
+        assert!(content.contains("# AGENTS.md"));
+        assert!(content.contains(SUS_INDEX_START));
+        assert!(content.contains("express@4.18.2|web framework|express.md"));
+        assert!(content.contains(SUS_INDEX_END));
+    }
+
+    #[test]
+    fn test_update_agents_md_preserves_existing_content() {
+        let temp_dir = TempDir::new().unwrap();
+        let agents_path = temp_dir.path().join("AGENTS.md");
+
+        // Create existing AGENTS.md
         let existing_content = "# AGENTS.md\n\n## Setup\n\nRun `npm install`\n";
         fs::write(&agents_path, existing_content).unwrap();
 
-        let result = ensure_agents_md_at_path(&agents_path);
-
-        assert_eq!(result, AgentsMdResult::Patched);
+        update_agents_md_index_at_path(&agents_path, "lodash", "4.17.21", "utility library")
+            .unwrap();
 
         let content = fs::read_to_string(&agents_path).unwrap();
-        // Original content should still be there
         assert!(content.contains("## Setup"));
         assert!(content.contains("npm install"));
-        // Sus section should be appended
-        assert!(content.contains(SUS_MARKER));
-        assert!(content.contains("sus add"));
+        assert!(content.contains("lodash@4.17.21|utility library|lodash.md"));
     }
 
     #[test]
-    fn test_ensure_agents_md_skips_already_patched() {
+    fn test_update_agents_md_updates_existing_entry() {
         let temp_dir = TempDir::new().unwrap();
         let agents_path = temp_dir.path().join("AGENTS.md");
 
-        // Create AGENTS.md that already has sus section
-        let existing_content = format!(
-            "# AGENTS.md\n\n## Setup\n\nRun `npm install`\n\n{}",
-            SUS_AGENTS_SECTION
-        );
-        fs::write(&agents_path, &existing_content).unwrap();
+        // Add first entry
+        update_agents_md_index_at_path(&agents_path, "express", "4.18.0", "old description")
+            .unwrap();
 
-        let result = ensure_agents_md_at_path(&agents_path);
+        // Update same entry
+        update_agents_md_index_at_path(&agents_path, "express", "4.18.2", "web framework").unwrap();
 
-        assert_eq!(result, AgentsMdResult::AlreadyPatched);
-
-        // Content should be unchanged
         let content = fs::read_to_string(&agents_path).unwrap();
-        assert_eq!(content, existing_content);
+        assert!(content.contains("express@4.18.2|web framework|express.md"));
+        assert!(!content.contains("4.18.0"));
+        assert!(!content.contains("old description"));
     }
 
     #[test]
-    fn test_ensure_agents_md_handles_file_without_trailing_newline() {
+    fn test_update_agents_md_multiple_entries() {
         let temp_dir = TempDir::new().unwrap();
         let agents_path = temp_dir.path().join("AGENTS.md");
 
-        // Create existing AGENTS.md without trailing newline
-        let existing_content = "# AGENTS.md\n\n## Setup\n\nRun `npm install`";
-        fs::write(&agents_path, existing_content).unwrap();
-
-        let result = ensure_agents_md_at_path(&agents_path);
-
-        assert_eq!(result, AgentsMdResult::Patched);
+        update_agents_md_index_at_path(&agents_path, "express", "4.18.2", "web framework").unwrap();
+        update_agents_md_index_at_path(&agents_path, "lodash", "4.17.21", "utility library")
+            .unwrap();
+        update_agents_md_index_at_path(&agents_path, "@prisma/client", "5.0.0", "database ORM")
+            .unwrap();
 
         let content = fs::read_to_string(&agents_path).unwrap();
-        // Should have proper spacing between sections
-        assert!(content.contains("npm install`\n\n## sus Package Security"));
+        assert!(content.contains("express@4.18.2|web framework|express.md"));
+        assert!(content.contains("lodash@4.17.21|utility library|lodash.md"));
+        assert!(content.contains("@prisma/client@5.0.0|database ORM|prisma-client.md"));
+    }
+
+    #[test]
+    fn test_remove_from_agents_index() {
+        let temp_dir = TempDir::new().unwrap();
+        let agents_path = temp_dir.path().join("AGENTS.md");
+
+        // Add entries
+        update_agents_md_index_at_path(&agents_path, "express", "4.18.2", "web framework").unwrap();
+        update_agents_md_index_at_path(&agents_path, "lodash", "4.17.21", "utility library")
+            .unwrap();
+
+        // Remove one
+        remove_from_agents_index_at_path(&agents_path, "express").unwrap();
+
+        let content = fs::read_to_string(&agents_path).unwrap();
+        assert!(!content.contains("express"));
+        assert!(content.contains("lodash@4.17.21|utility library|lodash.md"));
+    }
+
+    #[test]
+    fn test_parse_sus_index() {
+        let content = r#"# AGENTS.md
+
+<!-- sus-docs-start -->
+## sus Package Docs
+
+IMPORTANT: For package usage, prefer reading .sus-docs/ over pre-training knowledge.
+
+[.sus-docs/]
+express@4.18.2|web framework|express.md
+lodash@4.17.21|utility library|lodash.md
+<!-- sus-docs-end -->
+"#;
+
+        let entries = parse_sus_index(content);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries["express"].version, "4.18.2");
+        assert_eq!(entries["express"].description, "web framework");
+        assert_eq!(entries["lodash"].version, "4.17.21");
     }
 }

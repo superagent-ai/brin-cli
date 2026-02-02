@@ -1,7 +1,7 @@
 //! sus Scan Worker - processes package scan jobs from the queue
 
+mod doc_generator;
 mod scanner;
-mod skill_generator;
 
 use anyhow::Result;
 use axum::{routing::get, Json, Router};

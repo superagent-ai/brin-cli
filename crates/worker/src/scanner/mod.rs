@@ -5,7 +5,7 @@ mod capabilities;
 mod cve;
 mod npm;
 
-use crate::skill_generator::generate_skill_md;
+use crate::doc_generator::generate_package_doc;
 use anyhow::Result;
 use capabilities::CapabilityExtractor;
 use chrono::{DateTime, Utc};
@@ -148,7 +148,8 @@ pub struct ScanResult {
     pub cves: Vec<CveSummary>,
     pub agentic_threats: Vec<AgenticThreatSummary>,
     pub capabilities: PackageCapabilities,
-    pub skill_md: String,
+    /// Package documentation (stored as skill_md in database for backward compatibility)
+    pub package_doc: String,
 }
 
 /// Main package scanner
@@ -306,8 +307,8 @@ impl PackageScanner {
         let (risk_level, risk_reasons) =
             calculate_risk(&cves, &agentic_threats, &capabilities, trust_score);
 
-        // 7. Generate SKILL.md
-        let skill_md = generate_skill_md(
+        // 7. Generate package documentation
+        let package_doc = generate_package_doc(
             package,
             version,
             &capabilities,
@@ -347,7 +348,7 @@ impl PackageScanner {
                 maintainers: maintainers_ref.map(|m| serde_json::to_value(m).unwrap_or_default()),
                 last_publish,
                 capabilities: serde_json::to_value(&capabilities)?,
-                skill_md: Some(skill_md.clone()),
+                skill_md: Some(package_doc.clone()),
                 scan_version: Some(env!("CARGO_PKG_VERSION").to_string()),
             })
             .await?;
@@ -392,7 +393,7 @@ impl PackageScanner {
             cves,
             agentic_threats,
             capabilities,
-            skill_md,
+            package_doc,
         })
     }
 }

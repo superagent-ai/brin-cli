@@ -1,43 +1,11 @@
-//! SKILL.md manifest generator following Agent Skills spec
-//! https://agentskills.io/specification
+//! Package documentation generator for AGENTS.md method
+//! Generates plain markdown docs instead of SKILL.md files
 
 use common::{PackageCapabilities, RiskLevel, UsageDocs};
 
-/// Convert a package name to a valid skill name
-/// - Lowercase only
-/// - Alphanumeric and hyphens only
-/// - No consecutive hyphens
-/// - Can't start or end with hyphen
-pub fn to_skill_name(package: &str) -> String {
-    let mut name: String = package
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-
-    // Remove consecutive hyphens
-    while name.contains("--") {
-        name = name.replace("--", "-");
-    }
-
-    // Remove leading/trailing hyphens
-    name = name.trim_matches('-').to_string();
-
-    // Truncate to 64 chars
-    if name.len() > 64 {
-        name = name[..64].trim_end_matches('-').to_string();
-    }
-
-    // Ensure non-empty
-    if name.is_empty() {
-        name = "package".to_string();
-    }
-
-    name
-}
-
-/// Generate a SKILL.md manifest following Agent Skills spec
-pub fn generate_skill_md(
+/// Generate package documentation as plain markdown
+/// No YAML frontmatter - designed for passive context via AGENTS.md index
+pub fn generate_package_doc(
     package: &str,
     version: &str,
     caps: &PackageCapabilities,
@@ -47,37 +15,7 @@ pub fn generate_skill_md(
 ) -> String {
     let mut md = String::new();
 
-    let skill_name = to_skill_name(package);
-
-    // Build description
-    let description = usage_docs
-        .description
-        .clone()
-        .unwrap_or_else(|| format!("Usage guide for {} npm package.", package));
-
-    // Truncate description to 1024 chars max
-    let description = if description.len() > 1024 {
-        format!("{}...", &description[..1020])
-    } else {
-        description
-    };
-
-    // YAML Frontmatter (required by spec)
-    md.push_str("---\n");
-    md.push_str(&format!("name: {}\n", skill_name));
-    md.push_str(&format!(
-        "description: {} Use when working with {} in your project.\n",
-        description, package
-    ));
-    md.push_str(&format!(
-        "metadata:\n  package: {}\n  version: {}\n  generator: sus\n  generator-version: \"{}\"\n",
-        package,
-        version,
-        env!("CARGO_PKG_VERSION")
-    ));
-    md.push_str("---\n\n");
-
-    // Body content
+    // Header with package name and version
     md.push_str(&format!("# {}@{}\n\n", package, version));
 
     // Risk badge
@@ -88,6 +26,12 @@ pub fn generate_skill_md(
     };
     md.push_str(badge);
     md.push_str("\n\n");
+
+    // Description
+    if let Some(description) = &usage_docs.description {
+        md.push_str(description);
+        md.push_str("\n\n");
+    }
 
     // Quick Start
     if let Some(quick_start) = &usage_docs.quick_start {
@@ -232,23 +176,14 @@ mod tests {
     use common::{ApiDoc, NetworkCapabilities, ProcessCapabilities};
 
     #[test]
-    fn test_to_skill_name() {
-        assert_eq!(to_skill_name("express"), "express");
-        assert_eq!(to_skill_name("@types/node"), "types-node");
-        assert_eq!(to_skill_name("lodash.merge"), "lodash-merge");
-        assert_eq!(to_skill_name("--test--"), "test");
-        assert_eq!(to_skill_name("Express"), "express");
-    }
-
-    #[test]
-    fn test_generate_skill_md_has_frontmatter() {
+    fn test_generate_package_doc_no_frontmatter() {
         let caps = PackageCapabilities::default();
         let usage_docs = UsageDocs {
             description: Some("A test package".to_string()),
             ..Default::default()
         };
 
-        let md = generate_skill_md(
+        let md = generate_package_doc(
             "test-pkg",
             "1.0.0",
             &caps,
@@ -257,15 +192,18 @@ mod tests {
             &usage_docs,
         );
 
-        assert!(md.starts_with("---\n"));
-        assert!(md.contains("name: test-pkg"));
-        assert!(md.contains("description:"));
-        assert!(md.contains("metadata:"));
-        assert!(md.contains("---\n\n#"));
+        // Should NOT have YAML frontmatter
+        assert!(!md.starts_with("---\n"));
+        assert!(!md.contains("name: test-pkg"));
+        assert!(!md.contains("metadata:"));
+
+        // Should start with header
+        assert!(md.starts_with("# test-pkg@1.0.0\n"));
+        assert!(md.contains("A test package"));
     }
 
     #[test]
-    fn test_generate_skill_md_with_usage_docs() {
+    fn test_generate_package_doc_with_usage_docs() {
         let caps = PackageCapabilities {
             network: NetworkCapabilities {
                 makes_requests: true,
@@ -292,7 +230,7 @@ mod tests {
             gotchas: vec!["Don't forget to close connections".to_string()],
         };
 
-        let md = generate_skill_md(
+        let md = generate_package_doc(
             "test-pkg",
             "1.0.0",
             &caps,
@@ -301,7 +239,6 @@ mod tests {
             &usage_docs,
         );
 
-        assert!(md.contains("name: test-pkg"));
         assert!(md.contains("# test-pkg@1.0.0"));
         assert!(md.contains("A test package for testing"));
         assert!(md.contains("## Quick Start"));
@@ -315,5 +252,7 @@ mod tests {
         assert!(md.contains("warning-yellow"));
         assert!(md.contains("api.example.com"));
         assert!(md.contains("process: true"));
+        assert!(md.contains("## Risk Assessment"));
+        assert!(md.contains("Test warning"));
     }
 }
