@@ -342,6 +342,7 @@ impl Database {
     }
 
     /// Search packages by name with pagination and CVE/threat counts
+    /// Results are ranked by relevance: exact match > starts with > contains
     pub async fn search_packages(
         &self,
         query: &str,
@@ -359,11 +360,19 @@ impl Database {
                 COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
             FROM packages p
             WHERE p.name ILIKE $1
-            ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
-            LIMIT $2 OFFSET $3
+            ORDER BY 
+                CASE 
+                    WHEN LOWER(p.name) = LOWER($2) THEN 0
+                    WHEN LOWER(p.name) LIKE LOWER($2) || '%' THEN 1
+                    ELSE 2
+                END,
+                p.weekly_downloads DESC NULLS LAST,
+                p.name ASC
+            LIMIT $3 OFFSET $4
             "#,
         )
         .bind(&pattern)
+        .bind(query)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
