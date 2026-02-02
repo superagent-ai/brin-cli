@@ -3,32 +3,13 @@
 use crate::agents_md;
 use crate::api_client::SusClient;
 use crate::config;
+use crate::project::{self, NpmPackageManager, ProjectType, PypiPackageManager};
 use crate::ui::{self, print_capabilities, print_risk};
 use anyhow::Result;
 use colored::Colorize;
 use common::RiskLevel;
 use dialoguer::Confirm;
 use std::process::Command;
-
-/// Parse a package string into name and optional version
-fn parse_package_spec(spec: &str) -> (&str, Option<&str>) {
-    // Handle scoped packages like @types/node@1.0.0
-    if let Some(rest) = spec.strip_prefix('@') {
-        // Find the second @ for version
-        if let Some(idx) = rest.find('@') {
-            let idx = idx + 1; // Adjust for the @ prefix
-            return (&spec[..idx], Some(&spec[idx + 1..]));
-        }
-        return (spec, None);
-    }
-
-    // Regular package like lodash@4.17.0
-    if let Some(idx) = spec.find('@') {
-        return (&spec[..idx], Some(&spec[idx + 1..]));
-    }
-
-    (spec, None)
-}
 
 /// Run the add command
 pub async fn run(
@@ -37,24 +18,37 @@ pub async fn run(
     yolo: bool,
     strict: bool,
 ) -> Result<()> {
+    // Detect project type
+    let project_type = match project::detect_project_type() {
+        Some(pt) => pt,
+        None => {
+            anyhow::bail!(
+                "No supported project files found.\n\
+                 Supported files:\n\
+                 - npm: package.json, pnpm-lock.yaml, yarn.lock, bun.lockb\n\
+                 - python: requirements.txt, pyproject.toml, Pipfile, setup.py"
+            );
+        }
+    };
+
     // Check if AGENTS.md docs feature is enabled
     let agents_md_enabled = config::is_agents_md_enabled();
 
     for package_spec in &packages {
-        let (name, version) = parse_package_spec(package_spec);
-        let display_name = if let Some(v) = version {
-            format!("{}@{}", name, v)
+        let (name, version) = project::parse_package_spec(package_spec, &project_type);
+        let display_name = if let Some(ref v) = version {
+            format_display_name(&name, v, &project_type)
         } else {
-            name.to_string()
+            name.clone()
         };
 
         let pb = ui::spinner(&format!("checking {}...", display_name));
 
         // Fetch assessment from API
-        let assessment = match if let Some(v) = version {
-            client.get_package_version(name, v).await
+        let assessment = match if let Some(ref v) = version {
+            client.get_package_version(&name, v).await
         } else {
-            client.get_package(name).await
+            client.get_package(&name).await
         } {
             Ok(a) => {
                 ui::finish_spinner(&pb, a.risk_level.emoji(), &display_name);
@@ -68,7 +62,11 @@ pub async fn run(
                         display_name.yellow()
                     );
 
-                    match client.request_scan(name, version).await {
+                    let registry = project_type.registry();
+                    match client
+                        .request_scan_with_registry(&name, version.as_deref(), Some(registry))
+                        .await
+                    {
                         Ok(resp) => {
                             println!(
                                 "  scan queued (job {}), try again in ~{}s",
@@ -92,7 +90,7 @@ pub async fn run(
                     }
 
                     // If yolo, proceed without assessment
-                    install_package(package_spec).await?;
+                    install_package(package_spec, &project_type)?;
                     continue;
                 } else {
                     ui::finish_spinner(&pb, "❌", &display_name);
@@ -151,13 +149,13 @@ pub async fn run(
         }
 
         // Install the package
-        install_package(package_spec).await?;
+        install_package(package_spec, &project_type)?;
         println!("{}", "📦 installed".green());
 
         // Save docs and update AGENTS.md index if enabled
         if agents_md_enabled {
             if let Some(skill_md) = &assessment.skill_md {
-                save_package_docs(name, skill_md);
+                save_package_docs(&name, skill_md);
             }
         }
     }
@@ -165,38 +163,64 @@ pub async fn run(
     Ok(())
 }
 
-/// Install a package using npm/pnpm/yarn
-async fn install_package(package: &str) -> Result<()> {
-    // Detect package manager
-    let pm = detect_package_manager();
+/// Format display name based on project type
+fn format_display_name(name: &str, version: &str, project_type: &ProjectType) -> String {
+    match project_type {
+        ProjectType::Npm(_) => format!("{}@{}", name, version),
+        ProjectType::Pypi(_) => format!("{}=={}", name, version),
+    }
+}
 
-    let status = Command::new(&pm)
-        .args(["add", package])
+/// Install a package using the appropriate package manager
+fn install_package(package: &str, project_type: &ProjectType) -> Result<()> {
+    match project_type {
+        ProjectType::Npm(pm) => install_npm_package(package, *pm),
+        ProjectType::Pypi(pm) => install_pypi_package(package, *pm),
+    }
+}
+
+/// Install an npm package
+fn install_npm_package(package: &str, pm: NpmPackageManager) -> Result<()> {
+    let cmd = pm.command();
+    let install_cmd = pm.install_cmd();
+
+    let status = Command::new(cmd)
+        .args([install_cmd, package])
         .status()
-        .map_err(|e| anyhow::anyhow!("Failed to run {}: {}", pm, e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to run {}: {}", cmd, e))?;
 
     if !status.success() {
-        anyhow::bail!("{} add failed with exit code {:?}", pm, status.code());
+        anyhow::bail!(
+            "{} {} failed with exit code {:?}",
+            cmd,
+            install_cmd,
+            status.code()
+        );
     }
 
     Ok(())
 }
 
-/// Detect which package manager to use
-fn detect_package_manager() -> String {
-    // Check for lockfiles in order of preference
-    if std::path::Path::new("pnpm-lock.yaml").exists() {
-        return "pnpm".to_string();
-    }
-    if std::path::Path::new("yarn.lock").exists() {
-        return "yarn".to_string();
-    }
-    if std::path::Path::new("bun.lockb").exists() {
-        return "bun".to_string();
+/// Install a PyPI package
+fn install_pypi_package(package: &str, pm: PypiPackageManager) -> Result<()> {
+    let cmd = pm.command();
+    let install_cmd = pm.install_cmd();
+
+    let status = Command::new(cmd)
+        .args([install_cmd, package])
+        .status()
+        .map_err(|e| anyhow::anyhow!("Failed to run {}: {}", cmd, e))?;
+
+    if !status.success() {
+        anyhow::bail!(
+            "{} {} failed with exit code {:?}",
+            cmd,
+            install_cmd,
+            status.code()
+        );
     }
 
-    // Default to npm
-    "npm".to_string()
+    Ok(())
 }
 
 /// Save package documentation to .sus-docs/ and update AGENTS.md index
@@ -226,16 +250,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_package_spec() {
-        assert_eq!(parse_package_spec("lodash"), ("lodash", None));
+    fn test_format_display_name() {
+        let npm = ProjectType::Npm(NpmPackageManager::Npm);
+        let pypi = ProjectType::Pypi(PypiPackageManager::Pip);
+
         assert_eq!(
-            parse_package_spec("lodash@4.17.0"),
-            ("lodash", Some("4.17.0"))
+            format_display_name("lodash", "4.17.0", &npm),
+            "lodash@4.17.0"
         );
-        assert_eq!(parse_package_spec("@types/node"), ("@types/node", None));
         assert_eq!(
-            parse_package_spec("@types/node@18.0.0"),
-            ("@types/node", Some("18.0.0"))
+            format_display_name("requests", "2.31.0", &pypi),
+            "requests==2.31.0"
         );
     }
 }

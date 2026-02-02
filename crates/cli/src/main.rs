@@ -4,6 +4,7 @@ mod agents_md;
 mod api_client;
 mod commands;
 mod config;
+mod project;
 mod ui;
 
 use clap::{Parser, Subcommand};

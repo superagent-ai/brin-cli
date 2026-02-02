@@ -1,6 +1,7 @@
 //! Scan command - scan current project for vulnerabilities
 
 use crate::api_client::SusClient;
+use crate::project::{self, ProjectType};
 use crate::ui::{self, print_scan_summary};
 use anyhow::Result;
 use colored::Colorize;
@@ -8,26 +9,19 @@ use common::{PackageResponse, PackageVersionPair, Registry, RiskLevel};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Detected project type
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum ProjectType {
-    Npm,
-    Python,
-}
-
 /// Run the scan command
 pub async fn run(client: &SusClient, json: bool) -> Result<()> {
-    // Detect project type
-    let project_type = detect_project_type();
+    // Detect project type using shared module
+    let project_type = project::detect_project_type();
 
     let (deps, project_name) = match project_type {
-        Some(ProjectType::Npm) => {
+        Some(ProjectType::Npm(_)) => {
             let pb = ui::spinner("reading npm dependencies...");
             let deps = get_npm_dependencies()?;
             ui::finish_spinner(&pb, "📦", &format!("found {} npm packages", deps.len()));
             (deps, "npm")
         }
-        Some(ProjectType::Python) => {
+        Some(ProjectType::Pypi(_)) => {
             let pb = ui::spinner("reading python dependencies...");
             let deps = get_python_dependencies()?;
             ui::finish_spinner(&pb, "🐍", &format!("found {} python packages", deps.len()));
@@ -37,8 +31,8 @@ pub async fn run(client: &SusClient, json: bool) -> Result<()> {
             anyhow::bail!(
                 "No supported project files found.\n\
                  Supported files:\n\
-                 - npm: package.json\n\
-                 - python: requirements.txt, pyproject.toml"
+                 - npm: package.json, pnpm-lock.yaml, yarn.lock, bun.lockb\n\
+                 - python: requirements.txt, pyproject.toml, Pipfile, setup.py"
             );
         }
     };
@@ -151,25 +145,6 @@ pub async fn run(client: &SusClient, json: bool) -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Detect the project type based on files present
-fn detect_project_type() -> Option<ProjectType> {
-    // Check for npm first
-    if Path::new("package.json").exists() {
-        return Some(ProjectType::Npm);
-    }
-
-    // Check for Python
-    if Path::new("requirements.txt").exists()
-        || Path::new("pyproject.toml").exists()
-        || Path::new("setup.py").exists()
-        || Path::new("Pipfile").exists()
-    {
-        return Some(ProjectType::Python);
-    }
-
-    None
 }
 
 /// Parse package.json and package-lock.json to get all npm dependencies
