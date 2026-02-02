@@ -50,6 +50,14 @@ curl -fsSL https://sus-pm.com/install.sh | sh
 
 ## usage
 
+### initialize sus
+
+```bash
+sus init
+```
+
+configures sus for your project. optionally enables AGENTS.md docs index for AI coding agents.
+
 ### add packages (with safety checks)
 
 ```bash
@@ -112,6 +120,7 @@ sus check lodash
 ### other commands
 
 ```bash
+sus init             # initialize sus in project
 sus add <pkg>        # install with safety checks
 sus remove <pkg>     # uninstall
 sus scan             # audit current project
@@ -147,11 +156,16 @@ sus scan --json               # machine-readable output
 
 ---
 
-## agent skills
+## AGENTS.md docs index
 
-sus automatically generates [Agent Skills](https://agentskills.io) for each installed package. skills are saved to your existing coding agent folders (`.cursor/skills/`, `.claude/skills/`, `.windsurf/skills/`, etc.) following the [Agent Skills specification](https://agentskills.io/specification).
+sus can generate a compressed docs index in your `AGENTS.md` file, following [Vercel's research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals) showing that passive context outperforms active skill retrieval (100% vs 79% pass rate in their evals).
 
-each skill includes quick start examples, best practices, gotchas, and capability requirements — so your ai agent can use packages correctly without guessing.
+run `sus init` to enable this feature. when enabled:
+- package documentation is saved to `.sus-docs/`
+- `AGENTS.md` is updated with a compressed index pointing to these docs
+- your AI agent gets version-matched documentation without needing to invoke skills
+
+this approach ensures your agent uses retrieval-led reasoning over potentially outdated training data.
 
 ---
 
@@ -181,7 +195,7 @@ each skill includes quick start examples, best practices, gotchas, and capabilit
 │    → GET api.sus-pm.com/v1/packages/express │
 │    → get pre-computed risk assessment       │
 │    → install if safe                        │
-│    → generate agent skills                  │
+│    → update AGENTS.md docs index            │
 └─────────────────────────────────────────────┘
 ```
 
@@ -210,7 +224,7 @@ if you're building an agent that installs packages, sus is for you.
 | malware detection | ❌ | ❌ | ❌ | ✅ |
 | typosquat detection | ❌ | ❌ | ❌ | ✅ |
 | prompt injection detection | ❌ | ❌ | ❌ | ✅ |
-| generates agent skills | ❌ | ❌ | ❌ | ✅ |
+| AGENTS.md docs index | ❌ | ❌ | ❌ | ✅ |
 | built for ai agents | ❌ | ❌ | ❌ | ✅ |
 
 ---

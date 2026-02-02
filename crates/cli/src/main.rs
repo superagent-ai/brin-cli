@@ -1,7 +1,9 @@
 //! sus CLI - Security-first package gateway for AI agents
 
+mod agents_md;
 mod api_client;
 mod commands;
+mod config;
 mod ui;
 
 use clap::{Parser, Subcommand};
@@ -29,6 +31,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Initialize sus in the current project
+    Init {
+        /// Skip prompts and use defaults (enables AGENTS.md docs)
+        #[arg(long, short)]
+        yes: bool,
+    },
+
     /// Add packages (with safety checks)
     Add {
         /// Packages to install (e.g., "lodash", "express@4.18.0")
@@ -93,6 +102,8 @@ async fn main() -> anyhow::Result<()> {
     let client = api_client::SusClient::new(&cli.api_url);
 
     match cli.command {
+        Commands::Init { yes } => commands::init::run(yes).await,
+
         Commands::Add {
             packages,
             yolo,
