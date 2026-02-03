@@ -5,7 +5,7 @@ mod skill_generator;
 
 use anyhow::Result;
 use axum::{routing::get, Json, Router};
-use common::{Database, ScanQueue};
+use common::{Database, Registry, ScanQueue};
 use scanner::{AgenticScanner, PackageScanner};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -88,25 +88,54 @@ async fn worker_loop(queue: ScanQueue, scanner: PackageScanner) {
                     job_id = %job.id,
                     package = %job.package,
                     version = ?job.version,
+                    registry = ?job.registry,
                     tarball = ?job.tarball_path,
                     "Processing scan job"
                 );
 
                 let start = std::time::Instant::now();
 
-                // Handle tarball jobs vs npm registry jobs
+                // Handle tarball jobs vs registry jobs based on registry type
                 let scan_result = if let Some(tarball_path) = &job.tarball_path {
-                    scanner
-                        .scan_tarball(std::path::Path::new(tarball_path))
-                        .await
+                    // Local tarball - determine type based on registry
+                    match job.registry {
+                        Registry::Pypi => {
+                            scanner
+                                .scan_pypi_tarball(std::path::Path::new(tarball_path))
+                                .await
+                        }
+                        _ => {
+                            // Default to npm for tarballs
+                            scanner
+                                .scan_tarball(std::path::Path::new(tarball_path))
+                                .await
+                        }
+                    }
                 } else {
-                    scanner.scan(&job.package, job.version.as_deref()).await
+                    // Remote registry scan
+                    match job.registry {
+                        Registry::Npm => scanner.scan(&job.package, job.version.as_deref()).await,
+                        Registry::Pypi => {
+                            scanner
+                                .scan_pypi(&job.package, job.version.as_deref())
+                                .await
+                        }
+                        Registry::Crates => {
+                            // TODO: Implement crates.io support
+                            tracing::warn!(
+                                package = %job.package,
+                                "Crates.io registry not yet supported"
+                            );
+                            Err(anyhow::anyhow!("Crates.io registry not yet supported"))
+                        }
+                    }
                 };
 
                 match scan_result {
                     Ok(result) => {
                         tracing::info!(
                             package = %job.package,
+                            registry = ?job.registry,
                             risk_level = ?result.risk_level,
                             duration_ms = start.elapsed().as_millis(),
                             "Scan completed"
@@ -122,6 +151,7 @@ async fn worker_loop(queue: ScanQueue, scanner: PackageScanner) {
                     Err(e) => {
                         tracing::error!(
                             package = %job.package,
+                            registry = ?job.registry,
                             error = %e,
                             "Scan failed"
                         );

@@ -13,7 +13,7 @@ use tokio::process::Command;
 const OPENCODE_TIMEOUT_SECS: u64 = 300;
 
 /// Model used for initial threat scanning
-const SCAN_MODEL: &str = "opencode/kimi-k2.5-free";
+const SCAN_MODEL: &str = "anthropic/claude-sonnet-4-5";
 
 /// Model used for threat verification (more capable, used to reduce false positives)
 const VERIFICATION_MODEL: &str = "anthropic/claude-opus-4-5";
@@ -930,7 +930,7 @@ mod tests {
     #[test]
     fn test_model_constants() {
         // Verify model constants are defined correctly
-        assert_eq!(SCAN_MODEL, "opencode/kimi-k2.5-free");
+        assert_eq!(SCAN_MODEL, "anthropic/claude-sonnet-4-5");
         assert_eq!(VERIFICATION_MODEL, "anthropic/claude-opus-4-5");
     }
 }

@@ -494,6 +494,105 @@ pub struct NpmDist {
     pub integrity: Option<String>,
 }
 
+// =============================================================================
+// PyPI-specific types
+// =============================================================================
+
+/// PyPI package metadata from registry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PypiPackageMetadata {
+    pub name: String,
+    pub version: String,
+    pub summary: Option<String>,
+    pub author: Option<String>,
+    pub author_email: Option<String>,
+    pub maintainer: Option<String>,
+    pub maintainer_email: Option<String>,
+    pub home_page: Option<String>,
+    pub project_url: Option<String>,
+    pub project_urls: Option<HashMap<String, String>>,
+    pub license: Option<String>,
+    pub requires_python: Option<String>,
+    pub requires_dist: Option<Vec<String>>,
+    pub classifiers: Option<Vec<String>>,
+    /// Available releases/downloads for this version
+    pub releases: Vec<PypiReleaseInfo>,
+}
+
+/// PyPI release/distribution info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PypiReleaseInfo {
+    pub filename: String,
+    pub url: String,
+    pub packagetype: String,
+    pub size: Option<i64>,
+    pub digests: Option<serde_json::Value>,
+    pub upload_time: Option<String>,
+}
+
+/// PyPI maintainer info (derived from author/maintainer fields)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PypiMaintainer {
+    pub name: Option<String>,
+    pub email: Option<String>,
+}
+
+impl PypiPackageMetadata {
+    /// Get maintainers from the metadata (author and maintainer fields)
+    pub fn get_maintainers(&self) -> Vec<PypiMaintainer> {
+        let mut maintainers = Vec::new();
+
+        if self.author.is_some() || self.author_email.is_some() {
+            maintainers.push(PypiMaintainer {
+                name: self.author.clone(),
+                email: self.author_email.clone(),
+            });
+        }
+
+        if self.maintainer.is_some() || self.maintainer_email.is_some() {
+            // Only add if different from author
+            let maintainer = PypiMaintainer {
+                name: self.maintainer.clone(),
+                email: self.maintainer_email.clone(),
+            };
+            if maintainer.name != self.author || maintainer.email != self.author_email {
+                maintainers.push(maintainer);
+            }
+        }
+
+        maintainers
+    }
+
+    /// Check if package has a repository URL in project_urls
+    pub fn has_repository(&self) -> bool {
+        if let Some(urls) = &self.project_urls {
+            let repo_keys = [
+                "Source",
+                "Repository",
+                "GitHub",
+                "GitLab",
+                "Bitbucket",
+                "Code",
+            ];
+            for key in repo_keys {
+                if urls.contains_key(key) {
+                    return true;
+                }
+            }
+        }
+        // Also check home_page for common repository hosts
+        if let Some(home) = &self.home_page {
+            let repo_hosts = ["github.com", "gitlab.com", "bitbucket.org"];
+            for host in repo_hosts {
+                if home.contains(host) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

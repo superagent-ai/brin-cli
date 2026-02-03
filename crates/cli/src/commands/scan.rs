@@ -1,24 +1,41 @@
 //! Scan command - scan current project for vulnerabilities
 
 use crate::api_client::SusClient;
+use crate::project::{self, ProjectType};
 use crate::ui::{self, print_scan_summary};
 use anyhow::Result;
 use colored::Colorize;
-use common::{PackageResponse, PackageVersionPair, RiskLevel};
+use common::{PackageResponse, PackageVersionPair, Registry, RiskLevel};
 use std::collections::HashMap;
 use std::path::Path;
 
 /// Run the scan command
 pub async fn run(client: &SusClient, json: bool) -> Result<()> {
-    // Find package.json
-    if !Path::new("package.json").exists() {
-        anyhow::bail!("No package.json found in current directory");
-    }
+    // Detect project type using shared module
+    let project_type = project::detect_project_type();
 
-    // Parse dependencies
-    let pb = ui::spinner("reading dependencies...");
-    let deps = get_all_dependencies()?;
-    ui::finish_spinner(&pb, "📦", &format!("found {} packages", deps.len()));
+    let (deps, project_name) = match project_type {
+        Some(ProjectType::Npm(_)) => {
+            let pb = ui::spinner("reading npm dependencies...");
+            let deps = get_npm_dependencies()?;
+            ui::finish_spinner(&pb, "📦", &format!("found {} npm packages", deps.len()));
+            (deps, "npm")
+        }
+        Some(ProjectType::Pypi(_)) => {
+            let pb = ui::spinner("reading python dependencies...");
+            let deps = get_python_dependencies()?;
+            ui::finish_spinner(&pb, "🐍", &format!("found {} python packages", deps.len()));
+            (deps, "python")
+        }
+        None => {
+            anyhow::bail!(
+                "No supported project files found.\n\
+                 Supported files:\n\
+                 - npm: package.json, pnpm-lock.yaml, yarn.lock, bun.lockb\n\
+                 - python: requirements.txt, pyproject.toml, Pipfile, setup.py"
+            );
+        }
+    };
 
     if deps.is_empty() {
         println!("  no dependencies found");
@@ -27,7 +44,7 @@ pub async fn run(client: &SusClient, json: bool) -> Result<()> {
 
     if !json {
         println!();
-        println!("🔍 scanning {} packages...", deps.len());
+        println!("🔍 scanning {} {} packages...", deps.len(), project_name);
         println!();
     }
 
@@ -70,6 +87,7 @@ pub async fn run(client: &SusClient, json: bool) -> Result<()> {
     if json {
         let output = serde_json::json!({
             "total": deps.len(),
+            "project_type": project_name,
             "clean": clean.len(),
             "warnings": warnings.len(),
             "critical": critical.len(),
@@ -129,8 +147,8 @@ pub async fn run(client: &SusClient, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Parse package.json and package-lock.json to get all dependencies
-fn get_all_dependencies() -> Result<Vec<PackageVersionPair>> {
+/// Parse package.json and package-lock.json to get all npm dependencies
+fn get_npm_dependencies() -> Result<Vec<PackageVersionPair>> {
     let mut deps = Vec::new();
 
     // Read package.json
@@ -144,7 +162,7 @@ fn get_all_dependencies() -> Result<Vec<PackageVersionPair>> {
                 deps.push(PackageVersionPair {
                     name: name.clone(),
                     version: clean_version(v),
-                    registry: None,
+                    registry: Some(Registry::Npm),
                 });
             }
         }
@@ -157,7 +175,7 @@ fn get_all_dependencies() -> Result<Vec<PackageVersionPair>> {
                 deps.push(PackageVersionPair {
                     name: name.clone(),
                     version: clean_version(v),
-                    registry: None,
+                    registry: Some(Registry::Npm),
                 });
             }
         }
@@ -181,7 +199,7 @@ fn get_all_dependencies() -> Result<Vec<PackageVersionPair>> {
                             deps.push(PackageVersionPair {
                                 name: name.to_string(),
                                 version: version.to_string(),
-                                registry: None,
+                                registry: Some(Registry::Npm),
                             });
                         }
                     }
@@ -204,6 +222,289 @@ fn get_all_dependencies() -> Result<Vec<PackageVersionPair>> {
     Ok(deps)
 }
 
+/// Parse Python dependency files to get all dependencies
+fn get_python_dependencies() -> Result<Vec<PackageVersionPair>> {
+    let mut deps = Vec::new();
+
+    // Try requirements.txt first (most common)
+    if Path::new("requirements.txt").exists() {
+        let content = std::fs::read_to_string("requirements.txt")?;
+        parse_requirements_txt(&content, &mut deps);
+    }
+
+    // Try pyproject.toml
+    if Path::new("pyproject.toml").exists() {
+        let content = std::fs::read_to_string("pyproject.toml")?;
+        parse_pyproject_toml(&content, &mut deps);
+    }
+
+    // Try Pipfile (Pipenv)
+    if Path::new("Pipfile").exists() {
+        let content = std::fs::read_to_string("Pipfile")?;
+        parse_pipfile(&content, &mut deps);
+    }
+
+    // Try Pipfile.lock for exact versions
+    if Path::new("Pipfile.lock").exists() {
+        if let Ok(content) = std::fs::read_to_string("Pipfile.lock") {
+            parse_pipfile_lock(&content, &mut deps);
+        }
+    }
+
+    // Deduplicate (keep the one with a version if there are duplicates)
+    deps.sort_by(|a, b| {
+        let name_cmp = a.name.to_lowercase().cmp(&b.name.to_lowercase());
+        if name_cmp == std::cmp::Ordering::Equal {
+            // Prefer non-empty versions
+            b.version.len().cmp(&a.version.len())
+        } else {
+            name_cmp
+        }
+    });
+    deps.dedup_by(|a, b| a.name.to_lowercase() == b.name.to_lowercase());
+
+    Ok(deps)
+}
+
+/// Parse requirements.txt format
+fn parse_requirements_txt(content: &str, deps: &mut Vec<PackageVersionPair>) {
+    for line in content.lines() {
+        let line = line.trim();
+
+        // Skip comments and empty lines
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        // Skip -r, -e, --extra-index-url, etc.
+        if line.starts_with('-') {
+            continue;
+        }
+
+        // Parse package==version, package>=version, package~=version, etc.
+        if let Some((name, version)) = parse_python_requirement(line) {
+            deps.push(PackageVersionPair {
+                name,
+                version,
+                registry: Some(Registry::Pypi),
+            });
+        }
+    }
+}
+
+/// Parse a single Python requirement line
+fn parse_python_requirement(line: &str) -> Option<(String, String)> {
+    // Remove environment markers (everything after ;)
+    let line = line.split(';').next()?.trim();
+
+    // Remove extras (e.g., package[extra1,extra2])
+    let line = if let Some(bracket_pos) = line.find('[') {
+        if let Some(bracket_end) = line.find(']') {
+            format!("{}{}", &line[..bracket_pos], &line[bracket_end + 1..])
+        } else {
+            line.to_string()
+        }
+    } else {
+        line.to_string()
+    };
+
+    // Try different version specifiers
+    let specifiers = ["===", "==", "~=", "!=", ">=", "<=", ">", "<"];
+
+    for spec in specifiers {
+        if let Some(pos) = line.find(spec) {
+            let name = line[..pos].trim().to_string();
+            let version_part = line[pos + spec.len()..].trim();
+
+            // Handle version ranges like >=1.0,<2.0
+            let version = version_part
+                .split(',')
+                .next()
+                .unwrap_or(version_part)
+                .trim()
+                .to_string();
+
+            if !name.is_empty() {
+                return Some((name, version));
+            }
+        }
+    }
+
+    // No version specified - just package name
+    let name = line.trim().to_string();
+    if !name.is_empty() && !name.contains(' ') {
+        return Some((name, "latest".to_string()));
+    }
+
+    None
+}
+
+/// Parse pyproject.toml for dependencies
+fn parse_pyproject_toml(content: &str, deps: &mut Vec<PackageVersionPair>) {
+    // Simple line-by-line parsing for dependencies
+    let mut in_dependencies = false;
+    let mut in_optional_deps = false;
+
+    for line in content.lines() {
+        let line = line.trim();
+
+        // Check for dependencies section
+        if line == "[project.dependencies]" || line.starts_with("dependencies = [") {
+            in_dependencies = true;
+            continue;
+        }
+
+        if line.starts_with("[project.optional-dependencies") {
+            in_optional_deps = true;
+            continue;
+        }
+
+        // End of section
+        if line.starts_with('[') && !line.contains("dependencies") {
+            in_dependencies = false;
+            in_optional_deps = false;
+            continue;
+        }
+
+        // Parse inline dependencies array
+        if line.starts_with("dependencies = [") {
+            // Handle single-line: dependencies = ["pkg1", "pkg2"]
+            if let Some(start) = line.find('[') {
+                let deps_str = &line[start + 1..];
+                if let Some(end) = deps_str.find(']') {
+                    parse_toml_deps_array(&deps_str[..end], deps);
+                }
+            }
+            continue;
+        }
+
+        // Parse dependencies in multi-line array
+        if in_dependencies || in_optional_deps {
+            // Handle closing bracket
+            if line == "]" || line == "]," {
+                in_dependencies = false;
+                in_optional_deps = false;
+                continue;
+            }
+
+            // Parse quoted dependency
+            let line = line.trim_matches(',');
+            if let Some(dep) = extract_quoted_string(line) {
+                if let Some((name, version)) = parse_python_requirement(&dep) {
+                    deps.push(PackageVersionPair {
+                        name,
+                        version,
+                        registry: Some(Registry::Pypi),
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Parse TOML dependencies array content (between [ and ])
+fn parse_toml_deps_array(content: &str, deps: &mut Vec<PackageVersionPair>) {
+    // Split by comma and parse each
+    for part in content.split(',') {
+        if let Some(dep) = extract_quoted_string(part.trim()) {
+            if let Some((name, version)) = parse_python_requirement(&dep) {
+                deps.push(PackageVersionPair {
+                    name,
+                    version,
+                    registry: Some(Registry::Pypi),
+                });
+            }
+        }
+    }
+}
+
+/// Extract string content from quotes
+fn extract_quoted_string(s: &str) -> Option<String> {
+    let s = s.trim();
+    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+        Some(s[1..s.len() - 1].to_string())
+    } else {
+        None
+    }
+}
+
+/// Parse Pipfile for dependencies
+fn parse_pipfile(content: &str, deps: &mut Vec<PackageVersionPair>) {
+    let mut in_packages = false;
+    let mut in_dev_packages = false;
+
+    for line in content.lines() {
+        let line = line.trim();
+
+        if line == "[packages]" {
+            in_packages = true;
+            in_dev_packages = false;
+            continue;
+        }
+
+        if line == "[dev-packages]" {
+            in_packages = false;
+            in_dev_packages = true;
+            continue;
+        }
+
+        if line.starts_with('[') {
+            in_packages = false;
+            in_dev_packages = false;
+            continue;
+        }
+
+        if in_packages || in_dev_packages {
+            // Parse: package = "version" or package = "*"
+            if let Some(eq_pos) = line.find('=') {
+                let name = line[..eq_pos].trim().to_string();
+                let version_part = line[eq_pos + 1..].trim();
+
+                // Remove quotes
+                let version = version_part
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_string();
+
+                if !name.is_empty() {
+                    let version = if version == "*" {
+                        "latest".to_string()
+                    } else {
+                        version
+                    };
+
+                    deps.push(PackageVersionPair {
+                        name,
+                        version,
+                        registry: Some(Registry::Pypi),
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Parse Pipfile.lock for exact versions
+fn parse_pipfile_lock(content: &str, deps: &mut Vec<PackageVersionPair>) {
+    if let Ok(lock_json) = serde_json::from_str::<serde_json::Value>(content) {
+        for section in ["default", "develop"] {
+            if let Some(packages) = lock_json.get(section).and_then(|p| p.as_object()) {
+                for (name, info) in packages {
+                    if let Some(version) = info.get("version").and_then(|v| v.as_str()) {
+                        // Version in Pipfile.lock starts with ==
+                        let version = version.trim_start_matches("==").to_string();
+                        deps.push(PackageVersionPair {
+                            name: name.clone(),
+                            version,
+                            registry: Some(Registry::Pypi),
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Recursively collect dependencies from package-lock v1/v2 format
 fn collect_lock_deps(
     deps: &serde_json::Map<String, serde_json::Value>,
@@ -214,7 +515,7 @@ fn collect_lock_deps(
             out.push(PackageVersionPair {
                 name: name.clone(),
                 version: version.to_string(),
-                registry: None,
+                registry: Some(Registry::Npm),
             });
         }
         // Recurse into nested dependencies

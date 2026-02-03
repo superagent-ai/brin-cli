@@ -4,6 +4,7 @@ mod agentic;
 mod capabilities;
 mod cve;
 mod npm;
+pub mod pypi;
 
 use crate::skill_generator::generate_skill_md;
 use anyhow::Result;
@@ -11,11 +12,12 @@ use capabilities::CapabilityExtractor;
 use chrono::{DateTime, Utc};
 use common::{
     db::{NewAgenticThreat, NewPackage, NewPackageCve},
-    AgenticThreatSummary, CveSummary, Database, NpmPackageMetadata, PackageCapabilities, Registry,
-    RiskLevel, UsageDocs,
+    AgenticThreatSummary, CveSummary, Database, NpmPackageMetadata, PackageCapabilities,
+    PypiPackageMetadata, Registry, RiskLevel, UsageDocs,
 };
 use cve::CveScanner;
 use npm::NpmClient;
+use pypi::PypiClient;
 
 // Re-export AgenticScanner for OpenCode installation check from main.rs
 pub use agentic::AgenticScanner;
@@ -137,6 +139,188 @@ pub fn calculate_risk(
     (max_level, reasons)
 }
 
+/// Calculate trust score (0-100) for PyPI packages
+///
+/// Scoring:
+/// - Base score: 50
+/// - Has author: +5
+/// - Has maintainer: +5
+/// - Has repository URL: +10
+/// - Has description: +5
+/// - Has license: +5
+/// - Has classifiers: +5
+/// - Development Status stable: +10
+pub fn calculate_trust_score_pypi(metadata: Option<&PypiPackageMetadata>) -> u8 {
+    let mut score = 50u8; // Base score
+
+    let Some(metadata) = metadata else {
+        return score;
+    };
+
+    // Has author (+5)
+    if metadata.author.is_some() {
+        score = score.saturating_add(5);
+    }
+
+    // Has maintainer (+5)
+    if metadata.maintainer.is_some() {
+        score = score.saturating_add(5);
+    }
+
+    // Has repository URL (+10)
+    if metadata.has_repository() {
+        score = score.saturating_add(10);
+    }
+
+    // Has description (+5)
+    if metadata.summary.is_some() {
+        score = score.saturating_add(5);
+    }
+
+    // Has license (+5)
+    if metadata.license.is_some() {
+        score = score.saturating_add(5);
+    }
+
+    // Has classifiers (+5)
+    if let Some(classifiers) = &metadata.classifiers {
+        if !classifiers.is_empty() {
+            score = score.saturating_add(5);
+
+            // Check for stable development status (+10)
+            for classifier in classifiers {
+                if classifier.contains("Development Status :: 5 - Production/Stable")
+                    || classifier.contains("Development Status :: 6 - Mature")
+                {
+                    score = score.saturating_add(10);
+                    break;
+                }
+            }
+        }
+    }
+
+    score.min(100)
+}
+
+/// Convert PyPI extracted package to npm-style format for agentic scanner
+fn convert_pypi_to_npm_format(extracted: &pypi::ExtractedPypiPackage) -> npm::ExtractedPackage {
+    // Convert Python source files to the generic SourceFile format
+    let source_files = extracted
+        .source_files
+        .iter()
+        .map(|f| npm::SourceFile {
+            content: f.content.clone(),
+        })
+        .collect();
+
+    npm::ExtractedPackage {
+        dir: tempfile::TempDir::new().expect("Failed to create temp dir"),
+        root: extracted.root.clone(),
+        package_json: extracted.metadata.clone(),
+        source_files,
+        has_binding_gyp: false,
+        has_napi: extracted.has_c_extension || extracted.has_cython,
+    }
+}
+
+/// Extract package name and version from PyPI metadata
+fn extract_pypi_name_version(metadata: &serde_json::Value) -> Result<(String, String)> {
+    // Try to parse from PKG-INFO or pyproject.toml content
+    if let Some(content) = metadata.get("content").and_then(|c| c.as_str()) {
+        let metadata_type = metadata.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+        if metadata_type == "PKG-INFO" || metadata_type == "METADATA" {
+            // Parse PKG-INFO format (email-like headers)
+            let mut name = None;
+            let mut version = None;
+
+            for line in content.lines() {
+                if let Some(n) = line.strip_prefix("Name: ") {
+                    name = Some(n.trim().to_string());
+                } else if let Some(v) = line.strip_prefix("Version: ") {
+                    version = Some(v.trim().to_string());
+                }
+                if name.is_some() && version.is_some() {
+                    break;
+                }
+            }
+
+            if let (Some(n), Some(v)) = (name, version) {
+                return Ok((n, v));
+            }
+        } else if metadata_type == "pyproject.toml" {
+            // Basic TOML parsing for name and version
+            for line in content.lines() {
+                let line = line.trim();
+                if line.starts_with("name") {
+                    if let Some(v) = extract_toml_string_value(line) {
+                        if let Some(version) = find_toml_version(content) {
+                            return Ok((v, version));
+                        }
+                    }
+                }
+            }
+        } else if metadata_type == "setup.py" {
+            // Very basic setup.py parsing - look for name= and version=
+            if let (Some(name), Some(version)) = (
+                extract_setup_py_value(content, "name"),
+                extract_setup_py_value(content, "version"),
+            ) {
+                return Ok((name, version));
+            }
+        }
+    }
+
+    anyhow::bail!("Could not extract package name and version from metadata")
+}
+
+/// Extract a string value from a TOML line like: name = "value"
+fn extract_toml_string_value(line: &str) -> Option<String> {
+    let parts: Vec<&str> = line.splitn(2, '=').collect();
+    if parts.len() == 2 {
+        let value = parts[1].trim();
+        // Remove quotes
+        if (value.starts_with('"') && value.ends_with('"'))
+            || (value.starts_with('\'') && value.ends_with('\''))
+        {
+            return Some(value[1..value.len() - 1].to_string());
+        }
+    }
+    None
+}
+
+/// Find version in TOML content
+fn find_toml_version(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with("version") {
+            return extract_toml_string_value(line);
+        }
+    }
+    None
+}
+
+/// Extract a value from setup.py like: name="value" or name='value'
+fn extract_setup_py_value(content: &str, key: &str) -> Option<String> {
+    let patterns = [
+        format!("{}=\"", key),
+        format!("{}='", key),
+        format!("{} = \"", key),
+        format!("{} = '", key),
+    ];
+
+    for pattern in &patterns {
+        if let Some(start) = content.find(pattern) {
+            let value_start = start + pattern.len();
+            let quote_char = if pattern.ends_with('"') { '"' } else { '\'' };
+            if let Some(end) = content[value_start..].find(quote_char) {
+                return Some(content[value_start..value_start + end].to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Result of scanning a package
 #[allow(dead_code)]
 pub struct ScanResult {
@@ -155,6 +339,7 @@ pub struct ScanResult {
 pub struct PackageScanner {
     db: Database,
     npm: NpmClient,
+    pypi: PypiClient,
     cve_scanner: CveScanner,
     agentic_scanner: AgenticScanner,
     capability_extractor: CapabilityExtractor,
@@ -169,6 +354,7 @@ impl PackageScanner {
         Self {
             db,
             npm: NpmClient::new(),
+            pypi: PypiClient::new(),
             cve_scanner: CveScanner::new(),
             agentic_scanner: AgenticScanner::new(None),
             capability_extractor: CapabilityExtractor::new(),
@@ -236,6 +422,193 @@ impl PackageScanner {
 
         self.scan_extracted(&package, &version, None, None, extracted)
             .await
+    }
+
+    /// Scan a package from PyPI registry
+    pub async fn scan_pypi(&self, package: &str, version: Option<&str>) -> Result<ScanResult> {
+        // 1. Fetch package metadata
+        tracing::debug!(package, "Fetching PyPI package metadata");
+        let metadata = self.pypi.fetch_metadata(package).await?;
+
+        // Determine version to scan
+        let version = match version {
+            Some(v) => v.to_string(),
+            None => metadata.version.clone(),
+        };
+
+        // 2. Download and extract package
+        tracing::debug!(package, version = %version, "Downloading PyPI package");
+        let extracted = self.pypi.download_and_extract(package, &version).await?;
+
+        self.scan_pypi_extracted(package, &version, Some(&metadata), extracted)
+            .await
+    }
+
+    /// Scan a local Python package file
+    pub async fn scan_pypi_tarball(&self, path: &std::path::Path) -> Result<ScanResult> {
+        tracing::debug!(path = ?path, "Extracting local Python package");
+        let extracted = self.pypi.extract_local_package(path)?;
+
+        // Try to extract name/version from metadata
+        let (package, version) = extract_pypi_name_version(&extracted.metadata)?;
+
+        self.scan_pypi_extracted(&package, &version, None, extracted)
+            .await
+    }
+
+    /// Common scanning logic for extracted PyPI packages
+    async fn scan_pypi_extracted(
+        &self,
+        package: &str,
+        version: &str,
+        metadata: Option<&PypiPackageMetadata>,
+        extracted: pypi::ExtractedPypiPackage,
+    ) -> Result<ScanResult> {
+        // Convert PyPI source files to the format expected by agentic scanner
+        let npm_style_extracted = convert_pypi_to_npm_format(&extracted);
+
+        // Run all analyses in parallel
+        let (cves, agentic_threats, capabilities, usage_docs) = tokio::join!(
+            self.cve_scanner
+                .scan_with_ecosystem(package, version, "PyPI"),
+            self.agentic_scanner.scan(&npm_style_extracted),
+            async { self.capability_extractor.extract_python(&extracted) },
+            self.agentic_scanner
+                .generate_usage_docs(&npm_style_extracted, package)
+        );
+
+        let cves = cves.unwrap_or_else(|e| {
+            tracing::warn!("CVE scan failed: {}", e);
+            vec![]
+        });
+
+        let agentic_threats = agentic_threats.unwrap_or_else(|e| {
+            tracing::warn!("Agentic scan failed: {}", e);
+            vec![]
+        });
+
+        // Verify threats if any were detected
+        let agentic_threats = if !agentic_threats.is_empty() {
+            tracing::info!(
+                "Verifying {} detected threats with secondary model",
+                agentic_threats.len()
+            );
+            match self
+                .agentic_scanner
+                .verify_threats(&npm_style_extracted, agentic_threats.clone())
+                .await
+            {
+                Ok(verified) => verified,
+                Err(e) => {
+                    tracing::warn!(
+                        "Threat verification failed, keeping original {} threats: {}",
+                        agentic_threats.len(),
+                        e
+                    );
+                    agentic_threats
+                }
+            }
+        } else {
+            agentic_threats
+        };
+
+        let capabilities = capabilities.unwrap_or_default();
+
+        let usage_docs = usage_docs.unwrap_or_else(|e| {
+            tracing::warn!("Usage docs generation failed: {}", e);
+            UsageDocs::default()
+        });
+
+        // Calculate trust score for PyPI packages
+        let trust_score = calculate_trust_score_pypi(metadata);
+
+        // Determine risk level
+        let (risk_level, risk_reasons) =
+            calculate_risk(&cves, &agentic_threats, &capabilities, trust_score);
+
+        // Generate SKILL.md
+        let skill_md = generate_skill_md(
+            package,
+            version,
+            &capabilities,
+            &risk_level,
+            &risk_reasons,
+            &usage_docs,
+        );
+
+        // Fetch download stats (non-blocking)
+        let weekly_downloads = self
+            .pypi
+            .fetch_weekly_downloads(package)
+            .await
+            .unwrap_or(None);
+
+        // Get maintainers from metadata
+        let maintainers = metadata.map(|m| m.get_maintainers());
+
+        // Save to database
+        let package_id = self
+            .db
+            .upsert_package(&NewPackage {
+                name: package.to_string(),
+                version: version.to_string(),
+                registry: Registry::Pypi,
+                risk_level,
+                risk_reasons: serde_json::to_value(&risk_reasons)?,
+                trust_score: Some(trust_score as i16),
+                publisher_verified: None,
+                weekly_downloads,
+                maintainer_count: maintainers.as_ref().map(|m| m.len() as i32),
+                maintainers: maintainers.map(|m| serde_json::to_value(m).unwrap_or_default()),
+                last_publish: None, // PyPI doesn't provide per-version timestamps in the same way
+                capabilities: serde_json::to_value(&capabilities)?,
+                skill_md: Some(skill_md.clone()),
+                scan_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            })
+            .await?;
+
+        // Clear old CVEs and threats
+        self.db.delete_package_cves(package_id).await?;
+        self.db.delete_package_threats(package_id).await?;
+
+        // Insert new CVEs
+        for cve in &cves {
+            self.db
+                .insert_cve(&NewPackageCve {
+                    package_id,
+                    cve_id: cve.cve_id.clone(),
+                    severity: cve.severity.clone(),
+                    description: cve.description.clone(),
+                    fixed_in: cve.fixed_in.clone(),
+                    published_at: None,
+                })
+                .await?;
+        }
+
+        // Insert new threats
+        for threat in &agentic_threats {
+            self.db
+                .insert_threat(&NewAgenticThreat {
+                    package_id,
+                    threat_type: threat.threat_type,
+                    confidence: threat.confidence,
+                    location: threat.location.clone(),
+                    snippet: threat.snippet.clone(),
+                })
+                .await?;
+        }
+
+        Ok(ScanResult {
+            package: package.to_string(),
+            version: version.to_string(),
+            risk_level,
+            risk_reasons,
+            trust_score,
+            cves,
+            agentic_threats,
+            capabilities,
+            skill_md,
+        })
     }
 
     /// Common scanning logic for extracted packages
