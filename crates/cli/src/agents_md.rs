@@ -116,7 +116,6 @@ fn update_agents_md_index_at_path(agents_path: &Path, docs_dir: &Path) -> Result
 }
 
 /// Remove sus section from AGENTS.md
-#[allow(dead_code)]
 pub fn remove_agents_md_index() -> Result<()> {
     remove_agents_md_index_at_path(Path::new(AGENTS_MD_PATH))
 }

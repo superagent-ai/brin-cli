@@ -84,6 +84,17 @@ enum Commands {
         /// Package to trace
         package: String,
     },
+
+    /// Uninstall sus from this system
+    Uninstall {
+        /// Skip confirmation prompt
+        #[arg(long, short)]
+        yes: bool,
+
+        /// Also remove project-level files (.sus-docs/, sus.json)
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 #[tokio::main]
@@ -120,5 +131,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Update { dry_run } => commands::update::run(&client, dry_run).await,
 
         Commands::Why { package } => commands::why::run(&package).await,
+
+        Commands::Uninstall { yes, all } => commands::uninstall::run(yes, all).await,
     }
 }

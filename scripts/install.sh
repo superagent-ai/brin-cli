@@ -91,6 +91,8 @@ main() {
     fi
 
     info "Done! Run 'sus --help' to get started."
+    echo ""
+    echo "To uninstall later, run: sus uninstall"
 }
 
 main
