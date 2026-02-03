@@ -95,6 +95,13 @@ enum Commands {
         #[arg(long)]
         all: bool,
     },
+
+    /// Upgrade sus to the latest version
+    Upgrade {
+        /// Force upgrade even if already on latest version
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[tokio::main]
@@ -133,5 +140,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Why { package } => commands::why::run(&package).await,
 
         Commands::Uninstall { yes, all } => commands::uninstall::run(yes, all).await,
+
+        Commands::Upgrade { force } => commands::upgrade::run(force).await,
     }
 }
