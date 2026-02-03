@@ -1,5 +1,6 @@
 //! Uninstall command - remove sus from the system
 
+use crate::agents_md;
 use anyhow::Result;
 use colored::Colorize;
 use dialoguer::Confirm;
@@ -21,7 +22,12 @@ pub async fn run(yes: bool, all: bool) -> Result<()> {
     // Check for project-level files
     let sus_docs = Path::new(".sus-docs");
     let sus_json = Path::new("sus.json");
-    let has_project_files = sus_docs.exists() || sus_json.exists();
+    let agents_md = Path::new("AGENTS.md");
+    let has_agents_md_section = agents_md.exists()
+        && std::fs::read_to_string(agents_md)
+            .map(|c| c.contains("[sus Docs Index]"))
+            .unwrap_or(false);
+    let has_project_files = sus_docs.exists() || sus_json.exists() || has_agents_md_section;
 
     if all && has_project_files {
         println!();
@@ -31,6 +37,9 @@ pub async fn run(yes: bool, all: bool) -> Result<()> {
         }
         if sus_json.exists() {
             println!("   - {}", "sus.json".cyan());
+        }
+        if has_agents_md_section {
+            println!("   - {}", "AGENTS.md (sus section only)".cyan());
         }
     }
 
@@ -58,6 +67,10 @@ pub async fn run(yes: bool, all: bool) -> Result<()> {
         if sus_json.exists() {
             std::fs::remove_file(sus_json)?;
             println!("   {} Removed sus.json", "✓".green());
+        }
+        if has_agents_md_section {
+            agents_md::remove_agents_md_index()?;
+            println!("   {} Removed sus section from AGENTS.md", "✓".green());
         }
     }
 
