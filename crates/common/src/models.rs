@@ -395,7 +395,8 @@ pub struct PackageListResponse {
 pub struct PaginationParams {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
-    pub q: Option<String>, // Search query
+    pub q: Option<String>,    // Search query
+    pub latest: Option<bool>, // If true, return only latest version per package
 }
 
 /// Full package response for API
