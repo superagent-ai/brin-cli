@@ -38,7 +38,8 @@ RUN adduser -D -u 1000 sus
 
 # Install OpenCode as sus user (installs to ~/.opencode/bin/)
 USER sus
-RUN curl -fsSL https://opencode.ai/install | bash
+RUN curl -fsSL https://opencode.ai/install | bash && \
+    /home/sus/.opencode/bin/opencode upgrade
 
 # Explicitly set HOME and PATH for Cloud Run
 ENV HOME="/home/sus"

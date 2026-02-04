@@ -12,11 +12,11 @@ use tokio::process::Command;
 /// Timeout for OpenCode commands (5 minutes)
 const OPENCODE_TIMEOUT_SECS: u64 = 300;
 
-/// Model used for initial threat scanning
-const SCAN_MODEL: &str = "anthropic/claude-sonnet-4-5";
+/// Model used for initial threat scanning (AWS Bedrock - Sonnet)
+const SCAN_MODEL: &str = "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 
-/// Model used for threat verification (more capable, used to reduce false positives)
-const VERIFICATION_MODEL: &str = "anthropic/claude-opus-4-5";
+/// Model used for threat verification (AWS Bedrock - Opus for accuracy)
+const VERIFICATION_MODEL: &str = "amazon-bedrock/us.anthropic.claude-opus-4-5-20251101-v1:0";
 
 /// OpenCode threat report structure
 #[derive(Debug, Deserialize, Default)]
@@ -929,8 +929,14 @@ mod tests {
 
     #[test]
     fn test_model_constants() {
-        // Verify model constants are defined correctly
-        assert_eq!(SCAN_MODEL, "anthropic/claude-sonnet-4-5");
-        assert_eq!(VERIFICATION_MODEL, "anthropic/claude-opus-4-5");
+        // Verify model constants are defined correctly (AWS Bedrock)
+        assert_eq!(
+            SCAN_MODEL,
+            "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+        );
+        assert_eq!(
+            VERIFICATION_MODEL,
+            "amazon-bedrock/us.anthropic.claude-opus-4-5-20251101-v1:0"
+        );
     }
 }
