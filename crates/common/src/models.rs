@@ -365,6 +365,14 @@ impl InstallScripts {
     }
 }
 
+/// Basic package info for watcher sweep (minimal fields)
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct PackageBasicInfo {
+    pub name: String,
+    pub version: String,
+    pub registry: Registry,
+}
+
 /// Lightweight package item for list views (no full CVE/threat details)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageListItem {
