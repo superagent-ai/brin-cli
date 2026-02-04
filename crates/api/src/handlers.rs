@@ -29,8 +29,16 @@ pub async fn list_packages(
     let limit = params.limit.unwrap_or(50).min(100); // Default 50, max 100
     let offset = params.offset.unwrap_or(0);
 
+    let latest = params.latest.unwrap_or(false);
+
     let (packages, total) = if let Some(ref q) = params.q {
-        state.db.search_packages(q, limit, offset).await
+        if latest {
+            state.db.search_packages_latest(q, limit, offset).await
+        } else {
+            state.db.search_packages(q, limit, offset).await
+        }
+    } else if latest {
+        state.db.get_packages_paginated_latest(limit, offset).await
     } else {
         state.db.get_packages_paginated(limit, offset).await
     }
