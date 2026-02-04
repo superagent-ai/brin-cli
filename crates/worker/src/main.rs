@@ -1,11 +1,12 @@
 //! sus Scan Worker - processes package scan jobs from the queue
 
+mod registry;
 mod scanner;
 mod skill_generator;
 
 use anyhow::Result;
 use axum::{routing::get, Json, Router};
-use common::{Database, Registry, ScanQueue};
+use common::{Database, ScanQueue};
 use scanner::{AgenticScanner, PackageScanner};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -95,40 +96,17 @@ async fn worker_loop(queue: ScanQueue, scanner: PackageScanner) {
 
                 let start = std::time::Instant::now();
 
-                // Handle tarball jobs vs registry jobs based on registry type
+                // Handle tarball jobs vs registry jobs using unified scan methods
                 let scan_result = if let Some(tarball_path) = &job.tarball_path {
-                    // Local tarball - determine type based on registry
-                    match job.registry {
-                        Registry::Pypi => {
-                            scanner
-                                .scan_pypi_tarball(std::path::Path::new(tarball_path))
-                                .await
-                        }
-                        _ => {
-                            // Default to npm for tarballs
-                            scanner
-                                .scan_tarball(std::path::Path::new(tarball_path))
-                                .await
-                        }
-                    }
+                    // Local tarball - use unified tarball scan
+                    scanner
+                        .scan_tarball_unified(job.registry, std::path::Path::new(tarball_path))
+                        .await
                 } else {
-                    // Remote registry scan
-                    match job.registry {
-                        Registry::Npm => scanner.scan(&job.package, job.version.as_deref()).await,
-                        Registry::Pypi => {
-                            scanner
-                                .scan_pypi(&job.package, job.version.as_deref())
-                                .await
-                        }
-                        Registry::Crates => {
-                            // TODO: Implement crates.io support
-                            tracing::warn!(
-                                package = %job.package,
-                                "Crates.io registry not yet supported"
-                            );
-                            Err(anyhow::anyhow!("Crates.io registry not yet supported"))
-                        }
-                    }
+                    // Remote registry scan - use unified scan
+                    scanner
+                        .scan_unified(job.registry, &job.package, job.version.as_deref())
+                        .await
                 };
 
                 match scan_result {

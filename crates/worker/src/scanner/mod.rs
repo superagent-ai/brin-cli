@@ -3,26 +3,23 @@
 mod agentic;
 mod capabilities;
 mod cve;
-mod npm;
-pub mod pypi;
 
+use crate::registry::{AdapterRegistry, ExtractedPackage, PackageMetadata, RegistryAdapter};
 use crate::skill_generator::generate_skill_md;
 use anyhow::Result;
 use capabilities::CapabilityExtractor;
-use chrono::{DateTime, Utc};
 use common::{
     db::{NewAgenticThreat, NewPackage, NewPackageCve},
     AgenticThreatSummary, CveSummary, Database, NpmPackageMetadata, PackageCapabilities,
     PypiPackageMetadata, Registry, RiskLevel, UsageDocs,
 };
 use cve::CveScanner;
-use npm::NpmClient;
-use pypi::PypiClient;
+use std::sync::Arc;
 
 // Re-export AgenticScanner for OpenCode installation check from main.rs
 pub use agentic::AgenticScanner;
 
-/// Calculate trust score (0-100) based on package metadata
+/// Calculate trust score (0-100) based on package metadata (for backward compatibility)
 ///
 /// Scoring:
 /// - Base score: 50
@@ -31,6 +28,7 @@ pub use agentic::AgenticScanner;
 /// - 6+ maintainers: +20
 /// - Has repository: +10
 /// - Has description: +5
+#[allow(dead_code)]
 pub fn calculate_trust_score(metadata: Option<&NpmPackageMetadata>) -> u8 {
     let mut score = 50u8; // Base score
 
@@ -56,6 +54,41 @@ pub fn calculate_trust_score(metadata: Option<&NpmPackageMetadata>) -> u8 {
 
     // Has description (+5)
     if metadata.description.is_some() {
+        score = score.saturating_add(5);
+    }
+
+    score.min(100)
+}
+
+/// Calculate trust score (0-100) based on unified package metadata
+#[allow(dead_code)]
+pub fn calculate_trust_score_unified(metadata: Option<&PackageMetadata>) -> u8 {
+    let mut score = 50u8; // Base score
+
+    let Some(metadata) = metadata else {
+        return score;
+    };
+
+    // Maintainer count (up to +20)
+    match metadata.maintainers.len() {
+        0 => score = score.saturating_sub(10),
+        1 => {}
+        2..=5 => score = score.saturating_add(10),
+        _ => score = score.saturating_add(20),
+    }
+
+    // Has repository (+10)
+    if metadata.repository.is_some() {
+        score = score.saturating_add(10);
+    }
+
+    // Has description (+5)
+    if metadata.description.is_some() {
+        score = score.saturating_add(5);
+    }
+
+    // Has license (+5)
+    if metadata.license.is_some() {
         score = score.saturating_add(5);
     }
 
@@ -150,6 +183,7 @@ pub fn calculate_risk(
 /// - Has license: +5
 /// - Has classifiers: +5
 /// - Development Status stable: +10
+#[allow(dead_code)]
 pub fn calculate_trust_score_pypi(metadata: Option<&PypiPackageMetadata>) -> u8 {
     let mut score = 50u8; // Base score
 
@@ -200,27 +234,6 @@ pub fn calculate_trust_score_pypi(metadata: Option<&PypiPackageMetadata>) -> u8 
     }
 
     score.min(100)
-}
-
-/// Convert PyPI extracted package to npm-style format for agentic scanner
-fn convert_pypi_to_npm_format(extracted: &pypi::ExtractedPypiPackage) -> npm::ExtractedPackage {
-    // Convert Python source files to the generic SourceFile format
-    let source_files = extracted
-        .source_files
-        .iter()
-        .map(|f| npm::SourceFile {
-            content: f.content.clone(),
-        })
-        .collect();
-
-    npm::ExtractedPackage {
-        dir: tempfile::TempDir::new().expect("Failed to create temp dir"),
-        root: extracted.root.clone(),
-        package_json: extracted.metadata.clone(),
-        source_files,
-        has_binding_gyp: false,
-        has_napi: extracted.has_c_extension || extracted.has_cython,
-    }
 }
 
 /// Extract package name and version from PyPI metadata
@@ -338,8 +351,7 @@ pub struct ScanResult {
 /// Main package scanner
 pub struct PackageScanner {
     db: Database,
-    npm: NpmClient,
-    pypi: PypiClient,
+    adapters: AdapterRegistry,
     cve_scanner: CveScanner,
     agentic_scanner: AgenticScanner,
     capability_extractor: CapabilityExtractor,
@@ -353,128 +365,117 @@ impl PackageScanner {
     pub fn new(db: Database) -> Self {
         Self {
             db,
-            npm: NpmClient::new(),
-            pypi: PypiClient::new(),
+            adapters: AdapterRegistry::new(),
             cve_scanner: CveScanner::new(),
             agentic_scanner: AgenticScanner::new(None),
             capability_extractor: CapabilityExtractor::new(),
         }
     }
 
-    /// Scan a package from npm registry
-    pub async fn scan(&self, package: &str, version: Option<&str>) -> Result<ScanResult> {
-        // 1. Fetch package metadata
-        tracing::debug!(package, "Fetching package metadata");
-        let metadata = self.npm.fetch_metadata(package).await?;
-
-        // Determine version to scan
-        let version = match version {
-            Some(v) => v.to_string(),
-            None => {
-                // Get latest version from dist-tags
-                metadata
-                    .dist_tags
-                    .as_ref()
-                    .and_then(|tags| tags.get("latest"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from)
-                    .ok_or_else(|| anyhow::anyhow!("Could not determine latest version"))?
-            }
-        };
-
-        // 2. Fetch version-specific info
-        tracing::debug!(package, version = %version, "Fetching version info");
-        let version_info = self.npm.fetch_version_info(package, &version).await?;
-
-        // 3. Download and extract tarball
-        tracing::debug!(package, version = %version, "Downloading tarball");
-        let extracted = self.npm.download_and_extract(package, &version).await?;
-
-        self.scan_extracted(
-            package,
-            &version,
-            Some(&metadata),
-            Some(&version_info),
-            extracted,
-        )
-        .await
-    }
-
-    /// Scan a local tarball file
-    pub async fn scan_tarball(&self, tarball_path: &std::path::Path) -> Result<ScanResult> {
-        tracing::debug!(tarball_path = ?tarball_path, "Extracting local tarball");
-        let extracted = self.npm.extract_local_tarball(tarball_path)?;
-
-        // Get package name and version from package.json
-        let package = extracted
-            .package_json
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("No name in package.json"))?
-            .to_string();
-
-        let version = extracted
-            .package_json
-            .get("version")
-            .and_then(|v| v.as_str())
-            .unwrap_or("0.0.0")
-            .to_string();
-
-        self.scan_extracted(&package, &version, None, None, extracted)
-            .await
-    }
-
-    /// Scan a package from PyPI registry
-    pub async fn scan_pypi(&self, package: &str, version: Option<&str>) -> Result<ScanResult> {
-        // 1. Fetch package metadata
-        tracing::debug!(package, "Fetching PyPI package metadata");
-        let metadata = self.pypi.fetch_metadata(package).await?;
-
-        // Determine version to scan
-        let version = match version {
-            Some(v) => v.to_string(),
-            None => metadata.version.clone(),
-        };
-
-        // 2. Download and extract package
-        tracing::debug!(package, version = %version, "Downloading PyPI package");
-        let extracted = self.pypi.download_and_extract(package, &version).await?;
-
-        self.scan_pypi_extracted(package, &version, Some(&metadata), extracted)
-            .await
-    }
-
-    /// Scan a local Python package file
-    pub async fn scan_pypi_tarball(&self, path: &std::path::Path) -> Result<ScanResult> {
-        tracing::debug!(path = ?path, "Extracting local Python package");
-        let extracted = self.pypi.extract_local_package(path)?;
-
-        // Try to extract name/version from metadata
-        let (package, version) = extract_pypi_name_version(&extracted.metadata)?;
-
-        self.scan_pypi_extracted(&package, &version, None, extracted)
-            .await
-    }
-
-    /// Common scanning logic for extracted PyPI packages
-    async fn scan_pypi_extracted(
+    /// Unified scan method for all registries
+    pub async fn scan_unified(
         &self,
-        package: &str,
-        version: &str,
-        metadata: Option<&PypiPackageMetadata>,
-        extracted: pypi::ExtractedPypiPackage,
+        registry: Registry,
+        name: &str,
+        version: Option<&str>,
     ) -> Result<ScanResult> {
-        // Convert PyPI source files to the format expected by agentic scanner
-        let npm_style_extracted = convert_pypi_to_npm_format(&extracted);
+        let adapter = self
+            .adapters
+            .get(registry)
+            .ok_or_else(|| anyhow::anyhow!("Unsupported registry: {:?}", registry))?;
+
+        // 1. Fetch metadata
+        tracing::debug!(name, ?registry, "Fetching package metadata");
+        let metadata = adapter.fetch_metadata(name, version).await?;
+
+        // 2. Download and extract
+        tracing::debug!(name, version = %metadata.version, "Downloading package");
+        let extracted = adapter.download_package(name, &metadata.version).await?;
+
+        self.scan_extracted_unified(adapter, name, &metadata, extracted)
+            .await
+    }
+
+    /// Scan a local tarball using the appropriate adapter
+    pub async fn scan_tarball_unified(
+        &self,
+        registry: Registry,
+        tarball_path: &std::path::Path,
+    ) -> Result<ScanResult> {
+        let adapter = self
+            .adapters
+            .get(registry)
+            .ok_or_else(|| anyhow::anyhow!("Unsupported registry: {:?}", registry))?;
+
+        tracing::debug!(tarball_path = ?tarball_path, ?registry, "Extracting local package");
+        let extracted = adapter.extract_local(tarball_path)?;
+
+        // Get package name and version from manifest
+        let (name, version) = self.extract_name_version(&extracted, registry)?;
+
+        // Create basic metadata (no remote metadata available for local tarball)
+        let metadata = PackageMetadata {
+            name: name.clone(),
+            version: version.clone(),
+            ..Default::default()
+        };
+
+        self.scan_extracted_unified(adapter, &name, &metadata, extracted)
+            .await
+    }
+
+    /// Extract name and version from manifest
+    fn extract_name_version(
+        &self,
+        extracted: &ExtractedPackage,
+        registry: Registry,
+    ) -> Result<(String, String)> {
+        match registry {
+            Registry::Npm => {
+                let name = extracted
+                    .manifest
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("No name in package.json"))?
+                    .to_string();
+
+                let version = extracted
+                    .manifest
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("0.0.0")
+                    .to_string();
+
+                Ok((name, version))
+            }
+            Registry::Pypi => {
+                // Try to extract from PKG-INFO or pyproject.toml
+                extract_pypi_name_version(&extracted.manifest)
+            }
+            Registry::Crates => {
+                // TODO: Implement for Cargo.toml
+                anyhow::bail!("Crates.io registry not yet supported")
+            }
+        }
+    }
+
+    /// Common scanning logic for extracted packages (unified)
+    async fn scan_extracted_unified(
+        &self,
+        adapter: Arc<dyn RegistryAdapter>,
+        name: &str,
+        metadata: &PackageMetadata,
+        extracted: ExtractedPackage,
+    ) -> Result<ScanResult> {
+        let registry = adapter.registry();
+        let version = &metadata.version;
 
         // Run all analyses in parallel
         let (cves, agentic_threats, capabilities, usage_docs) = tokio::join!(
-            self.cve_scanner
-                .scan_with_ecosystem(package, version, "PyPI"),
-            self.agentic_scanner.scan(&npm_style_extracted),
-            async { self.capability_extractor.extract_python(&extracted) },
-            self.agentic_scanner
-                .generate_usage_docs(&npm_style_extracted, package)
+            self.scan_cves_with_adapter(&*adapter, name, version),
+            self.agentic_scanner.scan(&extracted),
+            async { self.capability_extractor.extract(&extracted) },
+            self.agentic_scanner.generate_usage_docs(&extracted, name)
         );
 
         let cves = cves.unwrap_or_else(|e| {
@@ -495,7 +496,7 @@ impl PackageScanner {
             );
             match self
                 .agentic_scanner
-                .verify_threats(&npm_style_extracted, agentic_threats.clone())
+                .verify_threats(&extracted, agentic_threats.clone())
                 .await
             {
                 Ok(verified) => verified,
@@ -519,8 +520,8 @@ impl PackageScanner {
             UsageDocs::default()
         });
 
-        // Calculate trust score for PyPI packages
-        let trust_score = calculate_trust_score_pypi(metadata);
+        // Calculate trust score using adapter
+        let trust_score = adapter.compute_trust_score(metadata);
 
         // Determine risk level
         let (risk_level, risk_reasons) =
@@ -528,7 +529,7 @@ impl PackageScanner {
 
         // Generate SKILL.md
         let skill_md = generate_skill_md(
-            package,
+            name,
             version,
             &capabilities,
             &risk_level,
@@ -536,31 +537,27 @@ impl PackageScanner {
             &usage_docs,
         );
 
-        // Fetch download stats (non-blocking)
-        let weekly_downloads = self
-            .pypi
-            .fetch_weekly_downloads(package)
-            .await
-            .unwrap_or(None);
-
-        // Get maintainers from metadata
-        let maintainers = metadata.map(|m| m.get_maintainers());
+        // Fetch download stats
+        let weekly_downloads = adapter.fetch_downloads(name).await.unwrap_or(None);
 
         // Save to database
+        let maintainer_count = metadata.maintainers.len() as i32;
+        let maintainers_json = serde_json::to_value(&metadata.maintainers).ok();
+
         let package_id = self
             .db
             .upsert_package(&NewPackage {
-                name: package.to_string(),
+                name: name.to_string(),
                 version: version.to_string(),
-                registry: Registry::Pypi,
+                registry,
                 risk_level,
                 risk_reasons: serde_json::to_value(&risk_reasons)?,
                 trust_score: Some(trust_score as i16),
                 publisher_verified: None,
                 weekly_downloads,
-                maintainer_count: maintainers.as_ref().map(|m| m.len() as i32),
-                maintainers: maintainers.map(|m| serde_json::to_value(m).unwrap_or_default()),
-                last_publish: None, // PyPI doesn't provide per-version timestamps in the same way
+                maintainer_count: Some(maintainer_count),
+                maintainers: maintainers_json,
+                last_publish: metadata.published_at,
                 capabilities: serde_json::to_value(&capabilities)?,
                 skill_md: Some(skill_md.clone()),
                 scan_version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -599,7 +596,7 @@ impl PackageScanner {
         }
 
         Ok(ScanResult {
-            package: package.to_string(),
+            package: name.to_string(),
             version: version.to_string(),
             risk_level,
             risk_reasons,
@@ -611,162 +608,45 @@ impl PackageScanner {
         })
     }
 
-    /// Common scanning logic for extracted packages
-    async fn scan_extracted(
+    /// Scan for CVEs using adapter's ecosystem
+    async fn scan_cves_with_adapter(
         &self,
-        package: &str,
+        adapter: &dyn RegistryAdapter,
+        name: &str,
         version: &str,
-        metadata: Option<&common::NpmPackageMetadata>,
-        _version_info: Option<&common::NpmVersionInfo>,
-        extracted: npm::ExtractedPackage,
-    ) -> Result<ScanResult> {
-        // 4. Run all analyses in parallel
-        let (cves, agentic_threats, capabilities, usage_docs) = tokio::join!(
-            self.cve_scanner.scan(package, version),
-            self.agentic_scanner.scan(&extracted),
-            async { self.capability_extractor.extract(&extracted) },
-            self.agentic_scanner
-                .generate_usage_docs(&extracted, package)
-        );
-
-        let cves = cves.unwrap_or_else(|e| {
-            tracing::warn!("CVE scan failed: {}", e);
-            vec![]
-        });
-
-        let agentic_threats = agentic_threats.unwrap_or_else(|e| {
-            tracing::warn!("Agentic scan failed: {}", e);
-            vec![]
-        });
-
-        // Verify threats if any were detected (reduces false positives)
-        let agentic_threats = if !agentic_threats.is_empty() {
-            tracing::info!(
-                "Verifying {} detected threats with secondary model",
-                agentic_threats.len()
-            );
-            match self
-                .agentic_scanner
-                .verify_threats(&extracted, agentic_threats.clone())
-                .await
-            {
-                Ok(verified) => verified,
-                Err(e) => {
-                    tracing::warn!(
-                        "Threat verification failed, keeping original {} threats: {}",
-                        agentic_threats.len(),
-                        e
-                    );
-                    // Fall back to unverified threats if verification fails
-                    agentic_threats
-                }
+    ) -> Result<Vec<CveSummary>> {
+        match adapter.cve_ecosystem() {
+            Some(ecosystem) => {
+                self.cve_scanner
+                    .scan_with_ecosystem(name, version, ecosystem)
+                    .await
             }
-        } else {
-            agentic_threats
-        };
-
-        let capabilities = capabilities.unwrap_or_default();
-
-        let usage_docs = usage_docs.unwrap_or_else(|e| {
-            tracing::warn!("Usage docs generation failed: {}", e);
-            UsageDocs::default()
-        });
-
-        // 5. Calculate trust score
-        let trust_score = calculate_trust_score(metadata);
-
-        // 6. Determine risk level
-        let (risk_level, risk_reasons) =
-            calculate_risk(&cves, &agentic_threats, &capabilities, trust_score);
-
-        // 7. Generate SKILL.md
-        let skill_md = generate_skill_md(
-            package,
-            version,
-            &capabilities,
-            &risk_level,
-            &risk_reasons,
-            &usage_docs,
-        );
-
-        // 8. Fetch additional npm stats (non-blocking)
-        let weekly_downloads = self
-            .npm
-            .fetch_weekly_downloads(package)
-            .await
-            .unwrap_or(None);
-
-        // Extract last publish time from metadata
-        let last_publish: Option<DateTime<Utc>> = metadata
-            .and_then(|m| m.time.as_ref())
-            .and_then(|time| time.get(version))
-            .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
-            .map(|dt| dt.with_timezone(&Utc));
-
-        // 9. Save to database
-        let maintainers_ref = metadata.and_then(|m| m.maintainers.as_ref());
-        let package_id = self
-            .db
-            .upsert_package(&NewPackage {
-                name: package.to_string(),
-                version: version.to_string(),
-                registry: Registry::Npm,
-                risk_level,
-                risk_reasons: serde_json::to_value(&risk_reasons)?,
-                trust_score: Some(trust_score as i16),
-                publisher_verified: None, // TODO: check npm verified publisher
-                weekly_downloads,
-                maintainer_count: maintainers_ref.map(|m| m.len() as i32),
-                maintainers: maintainers_ref.map(|m| serde_json::to_value(m).unwrap_or_default()),
-                last_publish,
-                capabilities: serde_json::to_value(&capabilities)?,
-                skill_md: Some(skill_md.clone()),
-                scan_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-            })
-            .await?;
-
-        // Clear old CVEs and threats
-        self.db.delete_package_cves(package_id).await?;
-        self.db.delete_package_threats(package_id).await?;
-
-        // Insert new CVEs
-        for cve in &cves {
-            self.db
-                .insert_cve(&NewPackageCve {
-                    package_id,
-                    cve_id: cve.cve_id.clone(),
-                    severity: cve.severity.clone(),
-                    description: cve.description.clone(),
-                    fixed_in: cve.fixed_in.clone(),
-                    published_at: None,
-                })
-                .await?;
+            None => Ok(vec![]),
         }
+    }
 
-        // Insert new threats
-        for threat in &agentic_threats {
-            self.db
-                .insert_threat(&NewAgenticThreat {
-                    package_id,
-                    threat_type: threat.threat_type,
-                    confidence: threat.confidence,
-                    location: threat.location.clone(),
-                    snippet: threat.snippet.clone(),
-                })
-                .await?;
-        }
+    /// Scan a package from npm registry (delegates to unified scan)
+    #[allow(dead_code)]
+    pub async fn scan(&self, package: &str, version: Option<&str>) -> Result<ScanResult> {
+        self.scan_unified(Registry::Npm, package, version).await
+    }
 
-        Ok(ScanResult {
-            package: package.to_string(),
-            version: version.to_string(),
-            risk_level,
-            risk_reasons,
-            trust_score,
-            cves,
-            agentic_threats,
-            capabilities,
-            skill_md,
-        })
+    /// Scan a local tarball file (delegates to unified scan)
+    #[allow(dead_code)]
+    pub async fn scan_tarball(&self, tarball_path: &std::path::Path) -> Result<ScanResult> {
+        self.scan_tarball_unified(Registry::Npm, tarball_path).await
+    }
+
+    /// Scan a package from PyPI registry (delegates to unified scan)
+    #[allow(dead_code)]
+    pub async fn scan_pypi(&self, package: &str, version: Option<&str>) -> Result<ScanResult> {
+        self.scan_unified(Registry::Pypi, package, version).await
+    }
+
+    /// Scan a local Python package file (delegates to unified scan)
+    #[allow(dead_code)]
+    pub async fn scan_pypi_tarball(&self, path: &std::path::Path) -> Result<ScanResult> {
+        self.scan_tarball_unified(Registry::Pypi, path).await
     }
 }
 
