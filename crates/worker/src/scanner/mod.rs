@@ -853,7 +853,9 @@ mod tests {
         let (level, reasons) = calculate_risk(&[], &threats, &PackageCapabilities::default(), 75);
         assert_eq!(level, RiskLevel::Critical);
         assert!(reasons.iter().any(|r| r.contains("PromptInjection")));
-        assert!(reasons.iter().any(|r| r.contains("patterns consistent with")));
+        assert!(reasons
+            .iter()
+            .any(|r| r.contains("patterns consistent with")));
     }
 
     #[test]
@@ -901,14 +903,18 @@ mod tests {
         capabilities.process.spawns_children = true;
         let (level, reasons) = calculate_risk(&[], &[], &capabilities, 75);
         assert_eq!(level, RiskLevel::Warning);
-        assert!(reasons.iter().any(|r| r.contains("can spawn child processes")));
+        assert!(reasons
+            .iter()
+            .any(|r| r.contains("can spawn child processes")));
     }
 
     #[test]
     fn test_risk_low_trust_score() {
         let (level, reasons) = calculate_risk(&[], &[], &PackageCapabilities::default(), 25);
         assert_eq!(level, RiskLevel::Warning);
-        assert!(reasons.iter().any(|r| r.contains("Low trust score assessed")));
+        assert!(reasons
+            .iter()
+            .any(|r| r.contains("Low trust score assessed")));
     }
 
     #[test]
