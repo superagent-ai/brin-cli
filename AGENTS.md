@@ -2,29 +2,7 @@
 
 ## Project Overview
 
-sus (Secure Package Gateway for AI Agents) is a security layer that sits in front of npm/yarn/pnpm/bun. It scans packages before installation using CVE databases, AI-powered threat detection, and static capability analysis.
-
-## Architecture
-
-```
-crates/
-├── api/        → REST API serving scan results from database
-├── cli/        → User-facing CLI (sus add, sus scan, etc.)
-├── common/     → Shared models, database, queue
-├── cve/        → CVE enrichment worker (OSV, GitHub Advisory)
-├── seed/       → Database seeding
-├── watcher/    → npm registry change feed monitor
-└── worker/     → Package scanning (CVE + agentic + capabilities)
-```
-
-## Key Files
-
-- `worker/src/scanner/agentic.rs` — AI threat detection prompts
-- `worker/src/scanner/mod.rs` — Main scanning orchestration
-- `common/src/models.rs` — Data models and threat types
-- `api/src/handlers.rs` — API response formatting
-
----
+sus is a secure package gateway for agents. It wraps npm/yarn/pnpm/bun. Before installing any package, it checks a database of pre-scanned results (CVE lookups, static analysis, threat detection). No scanning happens at install time, so there's no slowdown. If the package passes, sus hands off to your actual package manager.
 
 ## Legal & Communication Guidelines
 
