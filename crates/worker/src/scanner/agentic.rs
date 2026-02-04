@@ -216,6 +216,15 @@ Scan this package for security threats. Analyze all files for both **agentic thr
 - **medium**: Suspicious patterns, could be legitimate but warrants investigation
 - **low**: Informational, minor issues, potential false positive
 
+## Output Language (IMPORTANT)
+
+Use cautious, legally defensible language. These are automated assessments, not confirmed verdicts.
+
+- USE: "detected patterns consistent with," "indicators suggest," "flagged for," "code patterns resembling"
+- AVOID: "vulnerability," "malicious," "dangerous," "attack," "exploit," "compromised"
+- Never imply maintainer negligence or malice
+- Frame findings as risk indicators for human review, not definitive judgments
+
 ## Output
 
 Return ONLY valid JSON. Use EXACTLY one of these threat_type values (snake_case):
@@ -234,14 +243,14 @@ Return ONLY valid JSON. Use EXACTLY one of these threat_type values (snake_case)
       "severity": "critical|high|medium|low",
       "confidence": 0.0-1.0,
       "location": "file/path:line",
-      "description": "what it does and why it's suspicious",
+      "description": "detected patterns consistent with [threat]; [specific observation]",
       "snippet": "relevant code (max 100 chars)"
     }
   ],
-  "summary": "brief overall assessment"
+  "summary": "brief overall assessment using cautious language"
 }
 
-If no threats: {"threats": [], "summary": "No threats detected"}"#;
+If no threats: {"threats": [], "summary": "No security concerns detected"}"#;
 
         let output = self.run_opencode(package_dir, prompt).await?;
 
@@ -449,6 +458,15 @@ Downgrade if:
 - Low impact even if exploited
 - Common pattern with known safe usage
 
+## Output Language (IMPORTANT)
+
+Use cautious, legally defensible language. These are automated assessments, not confirmed verdicts.
+
+- USE: "detected patterns consistent with," "indicators suggest," "flagged for," "code patterns resembling"
+- AVOID: "vulnerability," "malicious," "dangerous," "attack," "exploit," "compromised"
+- Never imply maintainer negligence or malice
+- Frame findings as risk indicators for human review, not definitive judgments
+
 ## Output
 
 Return ONLY verified threats. Use EXACTLY one of these threat_type values (snake_case):
@@ -467,14 +485,14 @@ Return ONLY verified threats. Use EXACTLY one of these threat_type values (snake
       "severity": "critical|high|medium|low",
       "confidence": 0.0-1.0,
       "location": "file/path:line",
-      "description": "what it does and why it's dangerous",
+      "description": "verified patterns consistent with [threat]; [specific observation]",
       "snippet": "actual code from the file (max 100 chars)"
     }}
   ],
-  "summary": "brief overall assessment"
+  "summary": "brief overall assessment using cautious language"
 }}
 
-If no threats verified: {{"threats": [], "summary": "No threats confirmed"}}"#,
+If no threats verified: {{"threats": [], "summary": "No security concerns confirmed"}}"#,
             threats_json
         );
 

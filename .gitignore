@@ -25,5 +25,5 @@ Cargo.lock
 # Logs
 *.log
 
-AGENTS.md
+# Generated docs (in .sus-docs/, not root)
 CLAUDE.md
