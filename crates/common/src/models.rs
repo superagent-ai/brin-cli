@@ -90,7 +90,7 @@ pub enum ScanPriority {
 }
 
 /// Package registry type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, Default)]
 #[sqlx(type_name = "varchar", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum Registry {

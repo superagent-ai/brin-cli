@@ -1,7 +1,9 @@
-//! PyPI registry client
+//! PyPI registry adapter
 
+use super::{ExtractedPackage, Language, Maintainer, PackageMetadata, RegistryAdapter, SourceFile};
 use anyhow::{Context, Result};
-use common::{PypiPackageMetadata, PypiReleaseInfo};
+use async_trait::async_trait;
+use common::{PypiPackageMetadata, PypiReleaseInfo, Registry};
 use flate2::read::GzDecoder;
 use reqwest::Client;
 use std::path::{Path, PathBuf};
@@ -9,38 +11,14 @@ use tar::Archive;
 use tempfile::TempDir;
 use zip::ZipArchive;
 
-/// Extracted Python package contents
-pub struct ExtractedPypiPackage {
-    /// Temporary directory containing extracted files (must keep for ownership)
-    #[allow(dead_code)]
-    pub dir: TempDir,
-    /// Path to package root
-    pub root: PathBuf,
-    /// Package metadata (from PKG-INFO or pyproject.toml)
-    pub metadata: serde_json::Value,
-    /// Source files (.py, .pyi)
-    pub source_files: Vec<PythonSourceFile>,
-    /// Has C extensions
-    pub has_c_extension: bool,
-    /// Has Cython files
-    pub has_cython: bool,
-}
-
-/// A Python source file
-pub struct PythonSourceFile {
-    #[allow(dead_code)]
-    pub path: String,
-    pub content: String,
-}
-
-/// Client for PyPI registry
-pub struct PypiClient {
+/// Adapter for PyPI registry
+pub struct PypiAdapter {
     client: Client,
     registry_url: String,
 }
 
-impl PypiClient {
-    /// Create a new PyPI client
+impl PypiAdapter {
+    /// Create a new PyPI adapter
     pub fn new() -> Self {
         Self {
             client: Client::builder()
@@ -52,8 +30,8 @@ impl PypiClient {
         }
     }
 
-    /// Fetch package metadata (all versions)
-    pub async fn fetch_metadata(&self, package: &str) -> Result<PypiPackageMetadata> {
+    /// Fetch raw PyPI package metadata
+    async fn fetch_pypi_metadata(&self, package: &str) -> Result<PypiPackageMetadata> {
         let url = format!(
             "{}/{}/json",
             self.registry_url,
@@ -82,7 +60,7 @@ impl PypiClient {
     }
 
     /// Fetch specific version info
-    pub async fn fetch_version_info(
+    async fn fetch_version_info(
         &self,
         package: &str,
         version: &str,
@@ -115,33 +93,158 @@ impl PypiClient {
         parse_pypi_metadata(&json)
     }
 
-    /// Download and extract package source distribution
-    pub async fn download_and_extract(
+    /// Extract package from bytes
+    fn extract_package_bytes(
         &self,
-        package: &str,
-        version: &str,
-    ) -> Result<ExtractedPypiPackage> {
+        bytes: &[u8],
+        filename: &str,
+    ) -> Result<(TempDir, PathBuf, serde_json::Value)> {
+        let dir = TempDir::new().context("Failed to create temp directory")?;
+
+        let root = if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
+            extract_tarball(bytes, dir.path())?
+        } else if filename.ends_with(".whl") || filename.ends_with(".zip") {
+            extract_zip(bytes, dir.path())?
+        } else {
+            anyhow::bail!("Unsupported package format: {}", filename);
+        };
+
+        let manifest = read_package_metadata(&root)?;
+
+        Ok((dir, root, manifest))
+    }
+
+    /// Build ExtractedPackage from extracted directory
+    fn build_extracted_package(
+        &self,
+        dir: TempDir,
+        root: PathBuf,
+        manifest: serde_json::Value,
+    ) -> Result<ExtractedPackage> {
+        // Check for native extensions
+        let has_c_extension = check_for_c_extensions(&root);
+        let has_cython = check_for_cython(&root);
+
+        // Collect Python source files
+        let source_files = collect_python_source_files(&root)?;
+
+        Ok(ExtractedPackage {
+            dir,
+            root,
+            source_files,
+            manifest,
+            has_native_code: has_c_extension || has_cython,
+        })
+    }
+}
+
+impl Default for PypiAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl RegistryAdapter for PypiAdapter {
+    fn registry(&self) -> Registry {
+        Registry::Pypi
+    }
+
+    async fn fetch_metadata(&self, name: &str, version: Option<&str>) -> Result<PackageMetadata> {
+        let pypi_metadata = match version {
+            Some(v) => self.fetch_version_info(name, v).await?,
+            None => self.fetch_pypi_metadata(name).await?,
+        };
+
+        // Convert maintainers
+        let mut maintainers = Vec::new();
+        if pypi_metadata.author.is_some() || pypi_metadata.author_email.is_some() {
+            maintainers.push(Maintainer {
+                name: pypi_metadata.author.clone(),
+                email: pypi_metadata.author_email.clone(),
+            });
+        }
+        if pypi_metadata.maintainer.is_some() || pypi_metadata.maintainer_email.is_some() {
+            // Only add if different from author
+            if pypi_metadata.maintainer != pypi_metadata.author
+                || pypi_metadata.maintainer_email != pypi_metadata.author_email
+            {
+                maintainers.push(Maintainer {
+                    name: pypi_metadata.maintainer.clone(),
+                    email: pypi_metadata.maintainer_email.clone(),
+                });
+            }
+        }
+
+        // Get repository URL
+        let repository = pypi_metadata
+            .project_urls
+            .as_ref()
+            .and_then(|urls| {
+                let repo_keys = [
+                    "Source",
+                    "Repository",
+                    "GitHub",
+                    "GitLab",
+                    "Bitbucket",
+                    "Code",
+                ];
+                for key in repo_keys {
+                    if let Some(url) = urls.get(key) {
+                        return Some(url.clone());
+                    }
+                }
+                None
+            })
+            .or_else(|| {
+                // Also check home_page for repository hosts
+                pypi_metadata.home_page.as_ref().and_then(|home| {
+                    if home.contains("github.com")
+                        || home.contains("gitlab.com")
+                        || home.contains("bitbucket.org")
+                    {
+                        Some(home.clone())
+                    } else {
+                        None
+                    }
+                })
+            });
+
+        Ok(PackageMetadata {
+            name: pypi_metadata.name.clone(),
+            version: pypi_metadata.version.clone(),
+            description: pypi_metadata.summary.clone(),
+            repository,
+            maintainers,
+            downloads: None,    // Fetched separately
+            published_at: None, // PyPI doesn't provide in metadata
+            license: pypi_metadata.license.clone(),
+            extras: serde_json::to_value(&pypi_metadata).unwrap_or_default(),
+        })
+    }
+
+    async fn download_package(&self, name: &str, version: &str) -> Result<ExtractedPackage> {
         // Get package info to find download URL
-        let metadata = self.fetch_version_info(package, version).await?;
+        let pypi_metadata = self.fetch_version_info(name, version).await?;
 
         // Find the best release to download (prefer sdist over wheel for source analysis)
-        let release = metadata
+        let release = pypi_metadata
             .releases
             .iter()
             .find(|r| r.packagetype == "sdist")
             .or_else(|| {
-                metadata
+                pypi_metadata
                     .releases
                     .iter()
                     .find(|r| r.packagetype == "bdist_wheel")
             })
             .ok_or_else(|| {
-                anyhow::anyhow!("No downloadable release found for {}@{}", package, version)
+                anyhow::anyhow!("No downloadable release found for {}@{}", name, version)
             })?;
 
         tracing::debug!(
             "Downloading {} ({}) from {}",
-            package,
+            name,
             release.packagetype,
             release.url
         );
@@ -160,74 +263,75 @@ impl PypiClient {
             .bytes()
             .await?;
 
-        // Create temp directory
-        let dir = TempDir::new().context("Failed to create temp directory")?;
-
-        // Extract based on file type
-        let root = if release.filename.ends_with(".tar.gz") || release.filename.ends_with(".tgz") {
-            extract_tarball(&bytes, dir.path())?
-        } else if release.filename.ends_with(".whl") || release.filename.ends_with(".zip") {
-            extract_zip(&bytes, dir.path())?
-        } else {
-            anyhow::bail!("Unsupported package format: {}", release.filename);
-        };
-
-        // Read package metadata
-        let pkg_metadata = read_package_metadata(&root)?;
-
-        // Check for native extensions
-        let has_c_extension = check_for_c_extensions(&root);
-        let has_cython = check_for_cython(&root);
-
-        // Collect Python source files
-        let source_files = collect_python_source_files(&root)?;
-
-        Ok(ExtractedPypiPackage {
-            dir,
-            root,
-            metadata: pkg_metadata,
-            source_files,
-            has_c_extension,
-            has_cython,
-        })
+        let (dir, root, manifest) = self.extract_package_bytes(&bytes, &release.filename)?;
+        self.build_extracted_package(dir, root, manifest)
     }
 
-    /// Extract a local tarball or wheel file (for uploaded packages)
-    pub fn extract_local_package(&self, path: &Path) -> Result<ExtractedPypiPackage> {
+    fn extract_local(&self, path: &Path) -> Result<ExtractedPackage> {
         let bytes = std::fs::read(path).context(format!("Failed to read package: {:?}", path))?;
-
-        let dir = TempDir::new().context("Failed to create temp directory")?;
-
         let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        let root = if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
-            extract_tarball(&bytes, dir.path())?
-        } else if filename.ends_with(".whl") || filename.ends_with(".zip") {
-            extract_zip(&bytes, dir.path())?
-        } else {
-            anyhow::bail!("Unsupported package format: {}", filename);
-        };
-
-        let pkg_metadata = read_package_metadata(&root)?;
-        let has_c_extension = check_for_c_extensions(&root);
-        let has_cython = check_for_cython(&root);
-        let source_files = collect_python_source_files(&root)?;
-
-        Ok(ExtractedPypiPackage {
-            dir,
-            root,
-            metadata: pkg_metadata,
-            source_files,
-            has_c_extension,
-            has_cython,
-        })
+        let (dir, root, manifest) = self.extract_package_bytes(&bytes, filename)?;
+        self.build_extracted_package(dir, root, manifest)
     }
 
-    /// Fetch download statistics from pypistats.org
-    pub async fn fetch_weekly_downloads(&self, package: &str) -> Result<Option<i64>> {
+    fn compute_trust_score(&self, metadata: &PackageMetadata) -> u8 {
+        let mut score = 50u8; // Base score
+
+        // Has maintainers (+5 each, up to +10)
+        match metadata.maintainers.len() {
+            0 => {}
+            1 => score = score.saturating_add(5),
+            _ => score = score.saturating_add(10),
+        }
+
+        // Has repository URL (+10)
+        if metadata.repository.is_some() {
+            score = score.saturating_add(10);
+        }
+
+        // Has description (+5)
+        if metadata.description.is_some() {
+            score = score.saturating_add(5);
+        }
+
+        // Has license (+5)
+        if metadata.license.is_some() {
+            score = score.saturating_add(5);
+        }
+
+        // Check for classifiers in extras
+        if let Some(extras) = metadata.extras.as_object() {
+            if let Some(classifiers) = extras.get("classifiers").and_then(|c| c.as_array()) {
+                if !classifiers.is_empty() {
+                    score = score.saturating_add(5);
+
+                    // Check for stable development status (+10)
+                    for classifier in classifiers {
+                        if let Some(c) = classifier.as_str() {
+                            if c.contains("Development Status :: 5 - Production/Stable")
+                                || c.contains("Development Status :: 6 - Mature")
+                            {
+                                score = score.saturating_add(10);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        score.min(100)
+    }
+
+    fn cve_ecosystem(&self) -> Option<&'static str> {
+        Some("PyPI")
+    }
+
+    async fn fetch_downloads(&self, name: &str) -> Result<Option<i64>> {
         let url = format!(
             "https://pypistats.org/api/packages/{}/recent",
-            normalize_package_name(package)
+            normalize_package_name(name)
         );
 
         let response = self.client.get(&url).send().await;
@@ -235,7 +339,7 @@ impl PypiClient {
         match response {
             Ok(resp) => {
                 if !resp.status().is_success() {
-                    tracing::debug!("pypistats API returned {} for {}", resp.status(), package);
+                    tracing::debug!("pypistats API returned {} for {}", resp.status(), name);
                     return Ok(None);
                 }
 
@@ -247,7 +351,7 @@ impl PypiClient {
                     .and_then(|w| w.as_i64()))
             }
             Err(e) => {
-                tracing::debug!("Failed to fetch downloads for {}: {}", package, e);
+                tracing::debug!("Failed to fetch downloads for {}: {}", name, e);
                 Ok(None)
             }
         }
@@ -255,12 +359,11 @@ impl PypiClient {
 }
 
 /// Normalize package name according to PEP 503
-/// (lowercase, replace hyphens/underscores with hyphens)
 fn normalize_package_name(name: &str) -> String {
     name.to_lowercase().replace('_', "-")
 }
 
-/// Parse PyPI JSON API response into our metadata struct
+/// Parse PyPI JSON API response into metadata struct
 fn parse_pypi_metadata(json: &serde_json::Value) -> Result<PypiPackageMetadata> {
     let info = json
         .get("info")
@@ -282,32 +385,26 @@ fn parse_pypi_metadata(json: &serde_json::Value) -> Result<PypiPackageMetadata> 
         .get("summary")
         .and_then(|v| v.as_str())
         .map(String::from);
-
     let author = info
         .get("author")
         .and_then(|v| v.as_str())
         .map(String::from);
-
     let author_email = info
         .get("author_email")
         .and_then(|v| v.as_str())
         .map(String::from);
-
     let maintainer = info
         .get("maintainer")
         .and_then(|v| v.as_str())
         .map(String::from);
-
     let maintainer_email = info
         .get("maintainer_email")
         .and_then(|v| v.as_str())
         .map(String::from);
-
     let home_page = info
         .get("home_page")
         .and_then(|v| v.as_str())
         .map(String::from);
-
     let project_url = info
         .get("project_url")
         .and_then(|v| v.as_str())
@@ -326,7 +423,6 @@ fn parse_pypi_metadata(json: &serde_json::Value) -> Result<PypiPackageMetadata> 
         .get("license")
         .and_then(|v| v.as_str())
         .map(String::from);
-
     let requires_python = info
         .get("requires_python")
         .and_then(|v| v.as_str())
@@ -399,7 +495,6 @@ fn extract_tarball(bytes: &[u8], dest: &Path) -> Result<PathBuf> {
 
     archive.unpack(dest).context("Failed to extract tarball")?;
 
-    // Find the root directory (usually {package}-{version}/)
     find_package_root(dest)
 }
 
@@ -423,14 +518,11 @@ fn extract_zip(bytes: &[u8], dest: &Path) -> Result<PathBuf> {
         }
     }
 
-    // For wheels, the root is the dest directory itself
-    // For zip source dists, find the root directory
     find_package_root(dest)
 }
 
 /// Find the package root directory after extraction
 fn find_package_root(dest: &Path) -> Result<PathBuf> {
-    // Look for the first directory, or return dest if it contains Python files directly
     let entries: Vec<_> = std::fs::read_dir(dest)?.filter_map(|e| e.ok()).collect();
 
     // If there's exactly one directory, use it as root
@@ -438,7 +530,7 @@ fn find_package_root(dest: &Path) -> Result<PathBuf> {
         return Ok(entries[0].path());
     }
 
-    // If there are Python files or a setup.py directly in dest, use dest
+    // If there are Python files or setup.py directly in dest, use dest
     for entry in &entries {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
@@ -452,20 +544,18 @@ fn find_package_root(dest: &Path) -> Result<PathBuf> {
         if entry.path().is_dir() {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
-            // Skip dist-info and egg-info directories
             if !name_str.ends_with(".dist-info") && !name_str.ends_with(".egg-info") {
                 return Ok(entry.path());
             }
         }
     }
 
-    // Fallback to dest
     Ok(dest.to_path_buf())
 }
 
 /// Read package metadata from PKG-INFO, pyproject.toml, or setup.py
 fn read_package_metadata(root: &Path) -> Result<serde_json::Value> {
-    // Try PKG-INFO first (standard metadata file)
+    // Try PKG-INFO first
     let pkg_info_path = root.join("PKG-INFO");
     if pkg_info_path.exists() {
         if let Ok(content) = std::fs::read_to_string(&pkg_info_path) {
@@ -535,7 +625,6 @@ fn check_for_c_extensions(root: &Path) -> bool {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
 
-            // Skip hidden and common non-source directories
             if name_str.starts_with('.') || name_str == "__pycache__" {
                 continue;
             }
@@ -591,10 +680,10 @@ fn check_for_cython(root: &Path) -> bool {
 }
 
 /// Collect Python source files from the package
-fn collect_python_source_files(root: &Path) -> Result<Vec<PythonSourceFile>> {
+fn collect_python_source_files(root: &Path) -> Result<Vec<SourceFile>> {
     let mut files = Vec::new();
 
-    fn visit_dir(dir: &Path, files: &mut Vec<PythonSourceFile>, base: &Path) {
+    fn visit_dir(dir: &Path, files: &mut Vec<SourceFile>, base: &Path) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
@@ -602,7 +691,6 @@ fn collect_python_source_files(root: &Path) -> Result<Vec<PythonSourceFile>> {
         for entry in entries.flatten() {
             let path = entry.path();
 
-            // Skip hidden directories, __pycache__, egg-info, dist-info
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 if name.starts_with('.')
                     || name == "__pycache__"
@@ -619,22 +707,20 @@ fn collect_python_source_files(root: &Path) -> Result<Vec<PythonSourceFile>> {
             if path.is_dir() {
                 visit_dir(&path, files, base);
             } else if path.is_file() {
-                // Check if it's a Python file
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 if matches!(ext, "py" | "pyi") {
-                    // Read file (limit size to avoid huge files)
                     if let Ok(metadata) = std::fs::metadata(&path) {
                         if metadata.len() < 1_000_000 {
-                            // 1MB limit
                             if let Ok(content) = std::fs::read_to_string(&path) {
                                 let relative_path = path
                                     .strip_prefix(base)
                                     .map(|p| p.to_string_lossy().to_string())
                                     .unwrap_or_else(|_| path.to_string_lossy().to_string());
 
-                                files.push(PythonSourceFile {
+                                files.push(SourceFile {
                                     path: relative_path,
                                     content,
+                                    language: Language::Python,
                                 });
                             }
                         }
@@ -658,15 +744,5 @@ mod tests {
         assert_eq!(normalize_package_name("Flask"), "flask");
         assert_eq!(normalize_package_name("my_package"), "my-package");
         assert_eq!(normalize_package_name("My_Package"), "my-package");
-    }
-
-    #[tokio::test]
-    #[ignore] // Requires network
-    async fn test_fetch_metadata() {
-        let client = PypiClient::new();
-        let metadata = client.fetch_metadata("requests").await.unwrap();
-
-        assert_eq!(metadata.name.to_lowercase(), "requests");
-        assert!(metadata.summary.is_some());
     }
 }

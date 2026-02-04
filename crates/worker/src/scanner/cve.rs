@@ -72,6 +72,7 @@ impl CveScanner {
     }
 
     /// Scan for CVEs affecting a package version (defaults to npm ecosystem)
+    #[allow(dead_code)]
     pub async fn scan(&self, package: &str, version: &str) -> Result<Vec<CveSummary>> {
         self.scan_with_ecosystem(package, version, "npm").await
     }

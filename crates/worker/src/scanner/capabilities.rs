@@ -1,7 +1,6 @@
 //! Capability extraction using static analysis
 
-use super::npm::ExtractedPackage;
-use super::pypi::ExtractedPypiPackage;
+use crate::registry::{ExtractedPackage, Language};
 use anyhow::Result;
 use common::{
     EnvironmentCapabilities, FilesystemCapabilities, NativeCapabilities, NetworkCapabilities,
@@ -45,61 +44,60 @@ impl CapabilityExtractor {
         Self
     }
 
-    /// Extract capabilities from a package
+    /// Extract capabilities from a package (unified method)
     pub fn extract(&self, extracted: &ExtractedPackage) -> Result<PackageCapabilities> {
         let mut caps = PackageCapabilities::default();
 
         // Check for native modules
-        caps.native.has_native = extracted.has_binding_gyp || extracted.has_napi;
+        caps.native.has_native = extracted.has_native_code;
 
-        // Check dependencies for known native modules
-        if let Some(deps) = extracted
-            .package_json
-            .get("dependencies")
-            .and_then(|d| d.as_object())
-        {
-            for dep in deps.keys() {
-                if KNOWN_NATIVE_MODULES.contains(&dep.as_str()) {
-                    caps.native.has_native = true;
-                    caps.native.native_modules.push(dep.clone());
+        // Determine the dominant language based on source files
+        let has_python = extracted
+            .source_files
+            .iter()
+            .any(|f| matches!(f.language, Language::Python));
+        let has_js = extracted
+            .source_files
+            .iter()
+            .any(|f| matches!(f.language, Language::JavaScript | Language::TypeScript));
+
+        if has_js && !has_python {
+            // Node.js package - check npm dependencies
+            if let Some(deps) = extracted
+                .manifest
+                .get("dependencies")
+                .and_then(|d| d.as_object())
+            {
+                for dep in deps.keys() {
+                    if KNOWN_NATIVE_MODULES.contains(&dep.as_str()) {
+                        caps.native.has_native = true;
+                        caps.native.native_modules.push(dep.clone());
+                    }
                 }
+            }
+        } else if has_python {
+            // Python package - native code already detected by adapter
+            if extracted.has_native_code {
+                caps.native
+                    .native_modules
+                    .push("native extension".to_string());
             }
         }
 
-        // Analyze source files
+        // Analyze source files based on language
         for file in &extracted.source_files {
-            self.analyze_source(&file.content, &mut caps);
-        }
-
-        // Deduplicate
-        caps.network.domains.sort();
-        caps.network.domains.dedup();
-        caps.network.protocols.sort();
-        caps.network.protocols.dedup();
-        caps.process.commands.sort();
-        caps.process.commands.dedup();
-        caps.environment.accessed_vars.sort();
-        caps.environment.accessed_vars.dedup();
-
-        Ok(caps)
-    }
-
-    /// Extract capabilities from a Python package
-    pub fn extract_python(&self, extracted: &ExtractedPypiPackage) -> Result<PackageCapabilities> {
-        let mut caps = PackageCapabilities::default();
-
-        // Check for native extensions
-        caps.native.has_native = extracted.has_c_extension || extracted.has_cython;
-        if extracted.has_c_extension {
-            caps.native.native_modules.push("C extension".to_string());
-        }
-        if extracted.has_cython {
-            caps.native.native_modules.push("Cython".to_string());
-        }
-
-        // Analyze Python source files
-        for file in &extracted.source_files {
-            self.analyze_python_source(&file.content, &mut caps);
+            match file.language {
+                Language::Python => {
+                    self.analyze_python_source(&file.content, &mut caps);
+                }
+                Language::JavaScript | Language::TypeScript => {
+                    self.analyze_source(&file.content, &mut caps);
+                }
+                Language::Other => {
+                    // Try both JS and Python analysis for unknown files
+                    self.analyze_source(&file.content, &mut caps);
+                }
+            }
         }
 
         // Deduplicate

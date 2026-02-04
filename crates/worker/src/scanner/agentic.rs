@@ -1,7 +1,7 @@
 //! Agentic threat detection and usage documentation using OpenCode CLI
 //! https://github.com/anomalyco/opencode
 
-use super::npm::ExtractedPackage;
+use crate::registry::ExtractedPackage;
 use anyhow::{Context, Result};
 use common::{AgenticThreatSummary, ApiDoc, ThreatType, UsageDocs};
 use serde::Deserialize;
