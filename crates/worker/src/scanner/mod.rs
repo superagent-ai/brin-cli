@@ -125,18 +125,18 @@ pub fn calculate_risk(
         }
     }
 
-    // Check agentic threats
+    // Check agentic threats (use cautious language - these are automated assessments)
     for threat in agentic_threats {
         if threat.confidence > 0.8 {
             reasons.push(format!(
-                "{:?} detected ({}% confidence)",
+                "Detected patterns consistent with {:?} ({}% confidence)",
                 threat.threat_type,
                 (threat.confidence * 100.0) as u8
             ));
             max_level = RiskLevel::Critical;
         } else if threat.confidence > 0.5 {
             reasons.push(format!(
-                "Possible {:?} ({}% confidence)",
+                "Flagged for potential {:?} patterns ({}% confidence)",
                 threat.threat_type,
                 (threat.confidence * 100.0) as u8
             ));
@@ -146,16 +146,16 @@ pub fn calculate_risk(
         }
     }
 
-    // Check risky capabilities
+    // Check risky capabilities (factual observations, not judgments)
     if capabilities.native.has_native {
-        reasons.push("Contains native code".to_string());
+        reasons.push("Package includes native code modules".to_string());
         if max_level == RiskLevel::Clean {
             max_level = RiskLevel::Warning;
         }
     }
 
     if capabilities.process.spawns_children {
-        reasons.push("Can spawn child processes".to_string());
+        reasons.push("Package can spawn child processes".to_string());
         if max_level == RiskLevel::Clean {
             max_level = RiskLevel::Warning;
         }
@@ -163,7 +163,7 @@ pub fn calculate_risk(
 
     // Low trust score
     if trust_score < 30 {
-        reasons.push(format!("Low trust score ({})", trust_score));
+        reasons.push(format!("Low trust score assessed ({})", trust_score));
         if max_level == RiskLevel::Clean {
             max_level = RiskLevel::Warning;
         }
@@ -853,6 +853,7 @@ mod tests {
         let (level, reasons) = calculate_risk(&[], &threats, &PackageCapabilities::default(), 75);
         assert_eq!(level, RiskLevel::Critical);
         assert!(reasons.iter().any(|r| r.contains("PromptInjection")));
+        assert!(reasons.iter().any(|r| r.contains("patterns consistent with")));
     }
 
     #[test]
@@ -865,7 +866,7 @@ mod tests {
         }];
         let (level, reasons) = calculate_risk(&[], &threats, &PackageCapabilities::default(), 75);
         assert_eq!(level, RiskLevel::Warning);
-        assert!(reasons.iter().any(|r| r.contains("Possible")));
+        assert!(reasons.iter().any(|r| r.contains("Flagged for potential")));
     }
 
     #[test]
@@ -900,14 +901,14 @@ mod tests {
         capabilities.process.spawns_children = true;
         let (level, reasons) = calculate_risk(&[], &[], &capabilities, 75);
         assert_eq!(level, RiskLevel::Warning);
-        assert!(reasons.iter().any(|r| r.contains("spawn child processes")));
+        assert!(reasons.iter().any(|r| r.contains("can spawn child processes")));
     }
 
     #[test]
     fn test_risk_low_trust_score() {
         let (level, reasons) = calculate_risk(&[], &[], &PackageCapabilities::default(), 25);
         assert_eq!(level, RiskLevel::Warning);
-        assert!(reasons.iter().any(|r| r.contains("Low trust score")));
+        assert!(reasons.iter().any(|r| r.contains("Low trust score assessed")));
     }
 
     #[test]
