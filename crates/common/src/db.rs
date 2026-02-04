@@ -416,11 +416,10 @@ impl Database {
         .await?;
 
         // Count unique packages (distinct name + registry combinations)
-        let total: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM (SELECT DISTINCT name, registry FROM packages) t",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let total: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM (SELECT DISTINCT name, registry FROM packages) t")
+                .fetch_one(&self.pool)
+                .await?;
 
         Ok((packages, total.0))
     }
