@@ -25,4 +25,5 @@ Cargo.lock
 # Logs
 *.log
 
-awesome-express-starter
+AGENTS.md
+CLAUDE.md
