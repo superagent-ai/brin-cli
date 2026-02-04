@@ -1,62 +1,26 @@
-//! sus npm Registry Watcher - monitors npm for new packages and updates
+//! sus Registry Watcher - monitors npm and PyPI for package updates
 //!
-//! Only watches for updates to packages that are already in the database.
-//! Use the seed script to populate the initial set of tracked packages.
+//! Uses a sweep-based approach: iterates through all tracked packages in the database
+//! and checks each one against its registry for version updates. Rate-limited to
+//! ~100 packages/minute to avoid hitting API rate limits.
 
-mod npm_changes;
+mod registry;
 
 use anyhow::Result;
 use axum::{routing::get, Json, Router};
 use common::{Database, Registry, ScanJob, ScanPriority, ScanQueue};
-use npm_changes::NpmWatcher;
-use std::collections::HashSet;
+use registry::RegistryClient;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-/// Cache of tracked package names, refreshed periodically
-struct TrackedPackages {
-    names: RwLock<HashSet<String>>,
-    db: Database,
-}
-
-impl TrackedPackages {
-    async fn new(db: Database) -> Result<Self> {
-        let names = db.get_all_package_names().await?;
-        let names_set: HashSet<String> = names.into_iter().collect();
-        tracing::info!("Loaded {} tracked packages from database", names_set.len());
-
-        Ok(Self {
-            names: RwLock::new(names_set),
-            db,
-        })
-    }
-
-    /// Check if a package is tracked
-    async fn contains(&self, name: &str) -> bool {
-        let names = self.names.read().await;
-        names.contains(name)
-    }
-
-    /// Refresh the cache from the database
-    async fn refresh(&self) -> Result<()> {
-        let names = self.db.get_all_package_names().await?;
-        let names_set: HashSet<String> = names.into_iter().collect();
-        let count = names_set.len();
-
-        let mut cache = self.names.write().await;
-        *cache = names_set;
-
-        tracing::info!("Refreshed tracked packages cache: {} packages", count);
-        Ok(())
-    }
-
-    /// Get the count of tracked packages
-    async fn len(&self) -> usize {
-        self.names.read().await.len()
-    }
+/// Package info for version comparison
+#[derive(Debug, Clone)]
+struct TrackedPackage {
+    name: String,
+    version: String,
+    registry: Registry,
 }
 
 #[tokio::main]
@@ -78,7 +42,7 @@ async fn main() -> Result<()> {
         .expect("DATABASE_URL must be set - watcher needs DB to check tracked packages");
 
     tracing::info!("Connecting to database...");
-    let db = Database::new(&database_url).await?;
+    let db = Arc::new(Database::new(&database_url).await?);
 
     // Redis connection
     let redis_url =
@@ -87,28 +51,33 @@ async fn main() -> Result<()> {
     tracing::info!("Connecting to Redis...");
     let queue = ScanQueue::new(&redis_url).await?;
 
-    // Load tracked packages cache
-    tracing::info!("Loading tracked packages...");
-    let tracked = Arc::new(TrackedPackages::new(db).await?);
+    // Create registry client
+    let registry_client = Arc::new(RegistryClient::new());
 
-    // Create watcher
-    let watcher = NpmWatcher::new();
+    // Get package counts
+    let npm_count = db.get_package_names_by_registry(Registry::Npm).await?.len();
+    let pypi_count = db
+        .get_package_names_by_registry(Registry::Pypi)
+        .await?
+        .len();
 
     tracing::info!(
-        "npm watcher started (watching {} packages)",
-        tracked.len().await
+        "Watcher started (tracking {} npm, {} pypi packages)",
+        npm_count,
+        pypi_count
     );
 
-    // Spawn the cache refresh loop
-    let tracked_refresh = Arc::clone(&tracked);
-    tokio::spawn(async move {
-        cache_refresh_loop(tracked_refresh).await;
-    });
+    // Rate limit: packages per minute (default 100)
+    let packages_per_minute: u64 = std::env::var("PACKAGES_PER_MINUTE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100);
 
-    // Spawn the watcher loop in the background
-    let tracked_watcher = Arc::clone(&tracked);
+    // Spawn the sweep loop
+    let db_sweep = Arc::clone(&db);
+    let client_sweep = Arc::clone(&registry_client);
     tokio::spawn(async move {
-        watcher_loop(queue, watcher, tracked_watcher).await;
+        sweep_loop(db_sweep, queue, client_sweep, packages_per_minute).await;
     });
 
     // Start health check server (required for Cloud Run)
@@ -129,101 +98,151 @@ async fn health_check() -> Json<serde_json::Value> {
     Json(serde_json::json!({"status": "ok"}))
 }
 
-/// Periodically refresh the tracked packages cache
-async fn cache_refresh_loop(tracked: Arc<TrackedPackages>) {
-    // Refresh every 5 minutes
-    let refresh_interval = std::env::var("CACHE_REFRESH_SECS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(300);
+/// Main sweep loop - continuously checks all packages for updates
+async fn sweep_loop(
+    db: Arc<Database>,
+    queue: ScanQueue,
+    client: Arc<RegistryClient>,
+    packages_per_minute: u64,
+) {
+    // Calculate delay between package checks
+    let delay_ms = 60_000 / packages_per_minute;
 
     loop {
-        tokio::time::sleep(Duration::from_secs(refresh_interval)).await;
+        tracing::info!("Starting new sweep cycle...");
 
-        if let Err(e) = tracked.refresh().await {
-            tracing::error!("Failed to refresh tracked packages cache: {}", e);
-        }
-    }
-}
+        // Get all packages with their current versions
+        let packages = match get_tracked_packages(&db).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!("Failed to load tracked packages: {}", e);
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                continue;
+            }
+        };
 
-async fn watcher_loop(queue: ScanQueue, watcher: NpmWatcher, tracked: Arc<TrackedPackages>) {
-    loop {
-        match watcher.poll().await {
-            Ok(changes) => {
-                if !changes.is_empty() {
-                    tracing::info!("Received {} package changes from npm", changes.len());
+        let total_packages = packages.len();
+        tracing::info!(
+            "Sweeping {} packages ({} per minute)",
+            total_packages,
+            packages_per_minute
+        );
 
-                    let mut queued = 0;
-                    let mut skipped = 0;
+        let mut checked = 0;
+        let mut updates_found = 0;
+        let mut errors = 0;
+        let sweep_start = std::time::Instant::now();
 
-                    for change in changes {
-                        // Only queue if package is already tracked in our database
-                        if !tracked.contains(&change.name).await {
-                            tracing::debug!("Skipping untracked package: {}", change.name);
-                            skipped += 1;
-                            continue;
-                        }
-
-                        let priority = calculate_priority(&change);
-
-                        let job = ScanJob {
-                            id: uuid::Uuid::new_v4(),
-                            package: change.name,
-                            version: change.version,
-                            registry: Registry::Npm,
-                            priority,
-                            requested_at: chrono::Utc::now(),
-                            requested_by: Some("watcher".to_string()),
-                            tarball_path: None,
-                        };
-
-                        if let Err(e) = queue.push(job).await {
-                            tracing::error!("Failed to queue scan job: {}", e);
-                        } else {
-                            queued += 1;
-                        }
-                    }
-
-                    if queued > 0 || skipped > 0 {
-                        tracing::info!(
-                            "Processed changes: {} queued, {} skipped (untracked)",
-                            queued,
-                            skipped
-                        );
-                    }
+        for package in &packages {
+            // Check for version update
+            match check_package_update(&client, &queue, package).await {
+                Ok(true) => {
+                    updates_found += 1;
+                    tracing::info!(
+                        "[{}] {} {} -> new version available",
+                        package.registry,
+                        package.name,
+                        package.version
+                    );
+                }
+                Ok(false) => {
+                    // No update
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        "[{}] {} - error checking: {}",
+                        package.registry,
+                        package.name,
+                        e
+                    );
+                    errors += 1;
                 }
             }
-            Err(e) => {
-                tracing::error!("Failed to poll npm changes: {}", e);
+
+            checked += 1;
+
+            // Log progress every 500 packages
+            if checked % 500 == 0 {
+                let elapsed = sweep_start.elapsed().as_secs();
+                tracing::info!(
+                    "Progress: {}/{} checked, {} updates found, {} errors ({} seconds elapsed)",
+                    checked,
+                    total_packages,
+                    updates_found,
+                    errors,
+                    elapsed
+                );
             }
+
+            // Rate limit
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
         }
 
-        // Wait before next poll
-        let poll_interval = std::env::var("POLL_INTERVAL_SECS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(60);
+        let sweep_duration = sweep_start.elapsed();
+        tracing::info!(
+            "Sweep complete: {} packages checked, {} updates queued, {} errors ({:.1} minutes)",
+            checked,
+            updates_found,
+            errors,
+            sweep_duration.as_secs_f64() / 60.0
+        );
 
-        tokio::time::sleep(Duration::from_secs(poll_interval)).await;
+        // Small pause between sweeps
+        tokio::time::sleep(Duration::from_secs(10)).await;
     }
 }
 
-/// Calculate scan priority based on package metadata
-fn calculate_priority(change: &npm_changes::PackageChange) -> ScanPriority {
-    // Check for known malicious patterns (immediate)
-    let malicious_patterns = [
-        "crossenv",
-        "cross-env.js",
-        "mongose",
-        "babelcli",
-        "nodejs-base64",
-    ];
+/// Get all tracked packages with their current versions from the database
+async fn get_tracked_packages(db: &Database) -> Result<Vec<TrackedPackage>> {
+    // Get latest version of each unique package
+    let packages = db.get_all_packages_latest_version().await?;
 
-    if malicious_patterns.iter().any(|p| change.name.contains(p)) {
-        return ScanPriority::Immediate;
+    Ok(packages
+        .into_iter()
+        .map(|p| TrackedPackage {
+            name: p.name,
+            version: p.version,
+            registry: p.registry,
+        })
+        .collect())
+}
+
+/// Check if a package has an update available
+/// Returns true if update was found and queued
+async fn check_package_update(
+    client: &RegistryClient,
+    queue: &ScanQueue,
+    package: &TrackedPackage,
+) -> Result<bool> {
+    // Fetch latest version from registry
+    let latest = client
+        .get_latest_version(&package.name, package.registry)
+        .await?;
+
+    let Some(latest_version) = latest else {
+        // Package not found on registry (might have been deleted)
+        return Ok(false);
+    };
+
+    // Compare versions
+    if latest_version == package.version {
+        // No update
+        return Ok(false);
     }
 
-    // Otherwise use medium priority for watcher-discovered packages
-    // (user-requested scans get High priority)
-    ScanPriority::Medium
+    // New version available - queue for scan
+    let job = ScanJob {
+        id: uuid::Uuid::new_v4(),
+        package: package.name.clone(),
+        version: Some(latest_version),
+        registry: package.registry,
+        priority: ScanPriority::Medium,
+        requested_at: chrono::Utc::now(),
+        requested_by: Some("watcher".to_string()),
+        tarball_path: None,
+    };
+
+    queue.push(job).await?;
+
+    Ok(true)
 }

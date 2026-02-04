@@ -292,6 +292,36 @@ impl Database {
         Ok(names)
     }
 
+    /// Get all unique package names for a specific registry
+    pub async fn get_package_names_by_registry(
+        &self,
+        registry: crate::models::Registry,
+    ) -> Result<Vec<String>> {
+        let registry_str = registry.to_string().to_lowercase();
+        let names: Vec<String> =
+            sqlx::query_scalar("SELECT DISTINCT name FROM packages WHERE registry = $1")
+                .bind(&registry_str)
+                .fetch_all(&self.pool)
+                .await?;
+
+        Ok(names)
+    }
+
+    /// Get the latest version of each unique package (for watcher sweep)
+    pub async fn get_all_packages_latest_version(&self) -> Result<Vec<PackageBasicInfo>> {
+        let packages: Vec<PackageBasicInfo> = sqlx::query_as(
+            r#"
+            SELECT DISTINCT ON (name, registry) name, version, registry
+            FROM packages
+            ORDER BY name, registry, scanned_at DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(packages)
+    }
+
     /// Get all packages from the database
     pub async fn get_all_packages(&self) -> Result<Vec<Package>> {
         let packages: Vec<Package> = sqlx::query_as(

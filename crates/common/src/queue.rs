@@ -58,6 +58,35 @@ impl ScanQueue {
         Ok(id)
     }
 
+    /// Push multiple jobs to the queue using pipelining (much faster for bulk operations)
+    pub async fn push_batch(&self, jobs: Vec<ScanJob>) -> Result<usize> {
+        if jobs.is_empty() {
+            return Ok(0);
+        }
+
+        let mut conn = self.pool.get().await?;
+        let mut pipe = redis::pipe();
+
+        for job in &jobs {
+            // Store job data
+            let job_key = format!("{}{}", JOB_KEY_PREFIX, job.id);
+            let job_json = serde_json::to_string(&job)?;
+            pipe.set(&job_key, job_json).ignore();
+
+            // Add to priority queue (sorted set with priority as score)
+            let queue_key = self.queue_key_for_priority(job.priority);
+            let score = job.requested_at.timestamp_millis() as f64;
+            pipe.zadd(&queue_key, job.id.to_string(), score).ignore();
+        }
+
+        // Execute all commands in a single round-trip
+        let _: () = pipe.query_async(&mut conn).await?;
+
+        tracing::debug!(count = jobs.len(), "Pushed batch of jobs to queue");
+
+        Ok(jobs.len())
+    }
+
     /// Pop the highest priority job
     pub async fn pop(&self) -> Result<Option<ScanJob>> {
         let mut conn = match self.pool.get().await {

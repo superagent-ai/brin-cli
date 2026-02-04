@@ -358,20 +358,10 @@ async fn main() -> Result<()> {
 
     println!("\n🚀 Pushing {} packages to scan queue...\n", registry_name);
 
-    let pb = ProgressBar::new(packages.len() as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template(
-                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
-            )?
-            .progress_chars("#>-"),
-    );
-
-    let mut success = 0;
-    let mut failed = 0;
-
-    for package in &packages {
-        let job = ScanJob {
+    // Create all jobs
+    let jobs: Vec<ScanJob> = packages
+        .iter()
+        .map(|package| ScanJob {
             id: uuid::Uuid::new_v4(),
             package: package.clone(),
             version: None, // Will fetch latest
@@ -380,16 +370,35 @@ async fn main() -> Result<()> {
             requested_at: chrono::Utc::now(),
             requested_by: Some("seed".to_string()),
             tarball_path: None,
-        };
+        })
+        .collect();
 
-        match queue.push(job).await {
-            Ok(_) => success += 1,
+    // Push in batches of 500 using pipelining
+    const BATCH_SIZE: usize = 500;
+    let mut success = 0;
+    let mut failed = 0;
+
+    let pb = ProgressBar::new(jobs.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
+            )?
+            .progress_chars("#>-"),
+    );
+
+    for chunk in jobs.chunks(BATCH_SIZE) {
+        match queue.push_batch(chunk.to_vec()).await {
+            Ok(count) => {
+                success += count;
+                pb.inc(count as u64);
+            }
             Err(e) => {
-                tracing::warn!("Failed to queue {}: {}", package, e);
-                failed += 1;
+                tracing::warn!("Failed to queue batch: {}", e);
+                failed += chunk.len();
+                pb.inc(chunk.len() as u64);
             }
         }
-        pb.inc(1);
     }
 
     pb.finish_and_clear();
