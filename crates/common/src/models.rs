@@ -433,10 +433,14 @@ pub struct PackageListResponse {
 pub struct PaginationParams {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
-    pub q: Option<String>,              // Search query
-    pub latest: Option<bool>,           // If true, return only latest version per package
-    pub registry: Option<Registry>,     // Filter by registry (npm, pypi, crates)
-    pub risk_level: Option<RiskLevel>,  // Filter by risk level (clean, warning, critical)
+    /// Search query
+    pub q: Option<String>,
+    /// If true, return only latest version per package
+    pub latest: Option<bool>,
+    /// Filter by registry (npm, pypi, crates)
+    pub registry: Option<Registry>,
+    /// Filter by risk level (clean, warning, critical)
+    pub risk_level: Option<RiskLevel>,
 }
 
 /// Full package response for API
