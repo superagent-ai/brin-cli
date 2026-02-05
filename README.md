@@ -42,6 +42,26 @@ your agent doesn't know. **sus does.**
 
 ## install
 
+### via npm (recommended for JavaScript projects)
+
+```bash
+npm install -g @superagent/sus
+```
+
+or with yarn:
+
+```bash
+yarn global add @superagent/sus
+```
+
+or with pnpm:
+
+```bash
+pnpm add -g @superagent/sus
+```
+
+### via shell script
+
 ```bash
 curl -fsSL https://sus-pm.com/install.sh | sh
 ```
