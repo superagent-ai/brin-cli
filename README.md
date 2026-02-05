@@ -45,19 +45,19 @@ your agent doesn't know. **sus does.**
 ### via npm (recommended for JavaScript projects)
 
 ```bash
-npm install -g @superagent/sus
+npm install -g sus
 ```
 
 or with yarn:
 
 ```bash
-yarn global add @superagent/sus
+yarn global add sus
 ```
 
 or with pnpm:
 
 ```bash
-pnpm add -g @superagent/sus
+pnpm add -g sus
 ```
 
 ### via shell script

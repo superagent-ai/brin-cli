@@ -1,10 +1,10 @@
 # NPM Publishing Guide
 
-This document explains how to publish the `@superagent/sus` package to npm.
+This document explains how to publish the `sus` package to npm.
 
 ## Prerequisites
 
-1. **npm account**: You need an npm account with access to the `@superagent` organization
+1. **npm account**: You need an npm account with publishing rights for the `sus` package
 2. **npm authentication**: Run `npm login` to authenticate
 3. **Release binaries**: Ensure GitHub releases exist for the version you're publishing
 
@@ -35,7 +35,7 @@ You can test the package locally before publishing:
 npm pack
 
 # Install it globally from the tarball
-npm install -g ./superagent-sus-0.1.8.tgz
+npm install -g ./sus-0.1.8.tgz
 
 # Test the installation
 sus --version
@@ -54,18 +54,8 @@ sus --version
 3. Publish to npm:
 
 ```bash
-npm publish --access public
+npm publish
 ```
-
-#### For the first publish:
-
-If this is the first time publishing the package:
-
-```bash
-npm publish --access public
-```
-
-The `--access public` flag is required for scoped packages (@superagent/sus) to be publicly accessible.
 
 ### 4. Verify Publication
 
@@ -73,10 +63,10 @@ After publishing, verify the package:
 
 ```bash
 # Check on npm
-npm view @superagent/sus
+npm view sus
 
 # Test installation
-npm install -g @superagent/sus
+npm install -g sus
 sus --version
 ```
 
@@ -111,7 +101,7 @@ Where:
 The postinstall script will:
 1. Detect the user's platform and architecture
 2. Download the appropriate binary from GitHub releases
-3. Extract it to `node_modules/@superagent/sus/bin/`
+3. Extract it to `node_modules/sus/bin/`
 4. Make it executable
 
 ## Troubleshooting
