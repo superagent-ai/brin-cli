@@ -1,5 +1,5 @@
 {
-  "name": "sus",
+  "name": "sus-pm",
   "version": "0.1.8",
   "description": "Package gateway for AI agents - secure package installation with CVE scanning and threat detection",
   "main": "index.js",
