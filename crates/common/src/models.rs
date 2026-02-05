@@ -24,6 +24,20 @@ impl RiskLevel {
             RiskLevel::Critical => "🚨",
         }
     }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RiskLevel::Clean => "clean",
+            RiskLevel::Warning => "warning",
+            RiskLevel::Critical => "critical",
+        }
+    }
+}
+
+impl std::fmt::Display for RiskLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 /// Types of security threats that can be detected
@@ -419,9 +433,14 @@ pub struct PackageListResponse {
 pub struct PaginationParams {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
-    pub q: Option<String>,        // Search query
-    pub latest: Option<bool>,     // If true, return only latest version per package
-    pub registry: Option<String>, // Filter by registry (npm, pypi)
+    /// Search query
+    pub q: Option<String>,
+    /// If true, return only latest version per package
+    pub latest: Option<bool>,
+    /// Filter by registry (npm, pypi, crates)
+    pub registry: Option<Registry>,
+    /// Filter by risk level (clean, warning, critical)
+    pub risk_level: Option<RiskLevel>,
 }
 
 /// Full package response for API
