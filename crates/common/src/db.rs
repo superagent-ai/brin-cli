@@ -465,7 +465,6 @@ impl Database {
                 SELECT DISTINCT ON (name, registry) *
                 FROM packages
                 WHERE ($3::text IS NULL OR registry = $3)
-                  AND ($4::text IS NULL OR risk_level = $4)
                 ORDER BY name, registry, scanned_at DESC
             )
             SELECT 
@@ -474,6 +473,7 @@ impl Database {
                 COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
                 COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id AND verification_status = 'verified'), 0) as threat_count
             FROM latest p
+            WHERE ($4::text IS NULL OR p.risk_level = $4)
             ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
             LIMIT $1 OFFSET $2
             "#,
@@ -488,10 +488,12 @@ impl Database {
         let total: (i64,) = sqlx::query_as(
             r#"
             SELECT COUNT(*) FROM (
-                SELECT DISTINCT name, registry FROM packages
+                SELECT DISTINCT ON (name, registry) id, name, registry, risk_level
+                FROM packages
                 WHERE ($1::text IS NULL OR registry = $1)
-                  AND ($2::text IS NULL OR risk_level = $2)
-            ) t
+                ORDER BY name, registry, scanned_at DESC
+            ) latest
+            WHERE ($2::text IS NULL OR latest.risk_level = $2)
             "#,
         )
         .bind(&registry_str)
@@ -522,7 +524,6 @@ impl Database {
                 FROM packages
                 WHERE name ILIKE $1
                   AND ($5::text IS NULL OR registry = $5)
-                  AND ($6::text IS NULL OR risk_level = $6)
                 ORDER BY name, registry, scanned_at DESC
             )
             SELECT 
@@ -531,6 +532,7 @@ impl Database {
                 COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
                 COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id AND verification_status = 'verified'), 0) as threat_count
             FROM latest p
+            WHERE ($6::text IS NULL OR p.risk_level = $6)
             ORDER BY 
                 CASE 
                     WHEN LOWER(p.name) = LOWER($2) THEN 0
@@ -554,11 +556,13 @@ impl Database {
         let total: (i64,) = sqlx::query_as(
             r#"
             SELECT COUNT(*) FROM (
-                SELECT DISTINCT name, registry FROM packages
+                SELECT DISTINCT ON (name, registry) id, name, registry, risk_level
+                FROM packages
                 WHERE name ILIKE $1
                   AND ($2::text IS NULL OR registry = $2)
-                  AND ($3::text IS NULL OR risk_level = $3)
-            ) t
+                ORDER BY name, registry, scanned_at DESC
+            ) latest
+            WHERE ($3::text IS NULL OR latest.risk_level = $3)
             "#,
         )
         .bind(&pattern)
