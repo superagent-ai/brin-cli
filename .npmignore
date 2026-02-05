@@ -1,0 +1,55 @@
+# Rust source files
+/crates/
+/target/
+Cargo.toml
+Cargo.lock
+
+# Git
+.git/
+.github/
+.githooks/
+
+# Docker
+docker-compose.yml
+Dockerfile.*
+deploy.md
+
+# Database
+/migrations/
+
+# Scripts (except postinstall.js)
+/scripts/*
+!/scripts/postinstall.js
+
+# Development files
+.env
+.env.*
+Makefile
+
+# Documentation (keep README.md)
+CONTRIBUTING.md
+AGENTS.md
+
+# Assets (keep for npm page)
+# /assets/
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+*.dll
+*.exe
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

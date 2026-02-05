@@ -1,0 +1,55 @@
+{
+  "name": "sus-pm",
+  "version": "0.1.8",
+  "description": "Package gateway for AI agents - secure package installation with CVE scanning and threat detection",
+  "main": "index.js",
+  "bin": {
+    "sus": "./bin/sus.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/superagent-ai/sus.git"
+  },
+  "keywords": [
+    "security",
+    "package-manager",
+    "npm",
+    "cve",
+    "vulnerability",
+    "malware",
+    "ai-agents",
+    "agent-security",
+    "prompt-injection",
+    "typosquatting"
+  ],
+  "author": "sus contributors",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/superagent-ai/sus/issues"
+  },
+  "homepage": "https://sus-pm.com",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "files": [
+    "bin/",
+    "scripts/postinstall.js",
+    "index.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "tar": "^7.5.7"
+  }
+}
