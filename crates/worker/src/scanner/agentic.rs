@@ -12,8 +12,8 @@ use tokio::process::Command;
 /// Timeout for OpenCode commands (5 minutes)
 const OPENCODE_TIMEOUT_SECS: u64 = 300;
 
-/// Model used for initial threat scanning (Kimi K2.5 - free tier)
-const SCAN_MODEL: &str = "opencode/kimi-k2.5-free";
+/// Model used for initial threat scanning (AWS Bedrock - Sonnet)
+const SCAN_MODEL: &str = "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 
 /// Model used for threat verification (AWS Bedrock - Opus for accuracy)
 const VERIFICATION_MODEL: &str = "amazon-bedrock/us.anthropic.claude-opus-4-5-20251101-v1:0";
@@ -950,8 +950,11 @@ mod tests {
 
     #[test]
     fn test_model_constants() {
-        // Verify model constants are defined correctly
-        assert_eq!(SCAN_MODEL, "opencode/kimi-k2.5-free");
+        // Verify model constants are defined correctly (AWS Bedrock)
+        assert_eq!(
+            SCAN_MODEL,
+            "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+        );
         assert_eq!(
             VERIFICATION_MODEL,
             "amazon-bedrock/us.anthropic.claude-opus-4-5-20251101-v1:0"
