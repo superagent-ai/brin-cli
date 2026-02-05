@@ -3,7 +3,7 @@
 
 use crate::registry::ExtractedPackage;
 use anyhow::{Context, Result};
-use common::{AgenticThreatSummary, ApiDoc, ThreatType, UsageDocs};
+use common::{AgenticThreatSummary, ApiDoc, ThreatType, UsageDocs, VerificationStatus};
 use serde::Deserialize;
 use std::path::Path;
 use std::process::Stdio;
@@ -257,7 +257,7 @@ If no threats: {"threats": [], "summary": "No security concerns detected"}"#;
         // Parse the JSON output
         let report: OpenCodeThreatReport = self.parse_json_output(&output)?;
 
-        // Convert to AgenticThreatSummary
+        // Convert to AgenticThreatSummary (all new threats start as Pending)
         let threats: Vec<AgenticThreatSummary> = report
             .threats
             .into_iter()
@@ -267,6 +267,7 @@ If no threats: {"threats": [], "summary": "No security concerns detected"}"#;
                 confidence: t.confidence.unwrap_or(0.7),
                 location: t.location,
                 snippet: t.snippet,
+                verification_status: VerificationStatus::Pending,
             })
             .collect();
 
@@ -504,6 +505,7 @@ If no threats verified: {{"threats": [], "summary": "No security concerns confir
         let report: OpenCodeThreatReport = self.parse_json_output(&output)?;
 
         // Convert to AgenticThreatSummary (no confidence filtering on verification)
+        // These are still Pending - human review is required to change to Verified
         let verified_threats: Vec<AgenticThreatSummary> = report
             .threats
             .into_iter()
@@ -512,6 +514,7 @@ If no threats verified: {{"threats": [], "summary": "No security concerns confir
                 confidence: t.confidence.unwrap_or(0.8), // Higher default for verified threats
                 location: t.location,
                 snippet: t.snippet,
+                verification_status: VerificationStatus::Pending,
             })
             .collect();
 
