@@ -158,50 +158,56 @@ fn print_critical_assessment(assessment: &PackageResponse) {
     // Show the most critical issues first
     let mut items: Vec<String> = Vec::new();
 
-    // Malware/threats first
+    // Possible threats first (language chosen to be factual, not accusatory)
     for threat in &assessment.agentic_threats {
         if threat.confidence > 0.8 {
             let threat_desc = match threat.threat_type {
                 // LLM Safety
-                common::ThreatType::PromptInjection => "prompt injection attack",
-                common::ThreatType::ImproperOutputHandling => "improper output handling",
-                common::ThreatType::InsecureToolUsage => "insecure tool usage",
-                common::ThreatType::InstructionOverride => "instruction override attack",
+                common::ThreatType::PromptInjection => "patterns consistent with prompt injection",
+                common::ThreatType::ImproperOutputHandling => {
+                    "patterns consistent with improper output handling"
+                }
+                common::ThreatType::InsecureToolUsage => {
+                    "patterns consistent with insecure tool usage"
+                }
+                common::ThreatType::InstructionOverride => {
+                    "patterns consistent with instruction override"
+                }
                 // Secrets
-                common::ThreatType::HardcodedSecrets => "hardcoded secrets",
+                common::ThreatType::HardcodedSecrets => "possible hardcoded secrets",
                 // Data Handling
-                common::ThreatType::WeakCrypto => "weak cryptography",
-                common::ThreatType::SensitiveDataLogging => "sensitive data logging",
-                common::ThreatType::PiiViolations => "PII violations",
-                common::ThreatType::InsecureDeserialization => "insecure deserialization",
+                common::ThreatType::WeakCrypto => "possible weak cryptography",
+                common::ThreatType::SensitiveDataLogging => "possible sensitive data logging",
+                common::ThreatType::PiiViolations => "possible PII handling concerns",
+                common::ThreatType::InsecureDeserialization => "possible insecure deserialization",
                 // Injection
-                common::ThreatType::Xss => "XSS vulnerability",
-                common::ThreatType::Sqli => "SQL injection",
-                common::ThreatType::CommandInjection => "command injection",
-                common::ThreatType::Ssrf => "SSRF vulnerability",
-                common::ThreatType::Ssti => "SSTI vulnerability",
-                common::ThreatType::CodeInjection => "code injection",
+                common::ThreatType::Xss => "possible XSS vulnerability",
+                common::ThreatType::Sqli => "possible SQL injection",
+                common::ThreatType::CommandInjection => "possible command injection",
+                common::ThreatType::Ssrf => "possible SSRF vulnerability",
+                common::ThreatType::Ssti => "possible SSTI vulnerability",
+                common::ThreatType::CodeInjection => "possible code injection",
                 // Auth
-                common::ThreatType::AuthBypass => "authentication bypass",
-                common::ThreatType::WeakSessionTokens => "weak session tokens",
-                common::ThreatType::InsecurePasswordReset => "insecure password reset",
+                common::ThreatType::AuthBypass => "possible authentication bypass",
+                common::ThreatType::WeakSessionTokens => "possible weak session tokens",
+                common::ThreatType::InsecurePasswordReset => "possible insecure password reset",
                 // Supply Chain
-                common::ThreatType::MaliciousInstallScripts => "malicious install script",
-                common::ThreatType::DependencyConfusion => "dependency confusion",
-                common::ThreatType::Typosquatting => "typosquatting",
-                common::ThreatType::ObfuscatedCode => "obfuscated code",
+                common::ThreatType::MaliciousInstallScripts => "suspicious install script",
+                common::ThreatType::DependencyConfusion => "possible dependency confusion",
+                common::ThreatType::Typosquatting => "possible typosquatting",
+                common::ThreatType::ObfuscatedCode => "obfuscated code detected",
                 // Other
-                common::ThreatType::PathTraversal => "path traversal",
-                common::ThreatType::PrototypePollution => "prototype pollution",
-                common::ThreatType::Backdoor => "backdoor detected",
-                common::ThreatType::CryptoMiner => "crypto miner",
-                common::ThreatType::DataExfiltration => "data exfiltration attempt",
-                common::ThreatType::SocialEngineering => "social engineering attack",
+                common::ThreatType::PathTraversal => "possible path traversal",
+                common::ThreatType::PrototypePollution => "possible prototype pollution",
+                common::ThreatType::Backdoor => "suspicious backdoor-like patterns",
+                common::ThreatType::CryptoMiner => "possible crypto mining code",
+                common::ThreatType::DataExfiltration => "possible data exfiltration patterns",
+                common::ThreatType::SocialEngineering => "possible social engineering indicators",
                 // Legacy
-                common::ThreatType::InstallScriptInjection => "malicious install script",
-                common::ThreatType::MaliciousCode => "malware detected",
+                common::ThreatType::InstallScriptInjection => "suspicious install script",
+                common::ThreatType::MaliciousCode => "suspicious code patterns",
             };
-            items.push(format!("{}: {}", "threat".red(), threat_desc));
+            items.push(format!("{}: {}", "possible threat".red(), threat_desc));
         }
     }
 
@@ -219,13 +225,13 @@ fn print_critical_assessment(assessment: &PackageResponse) {
         }
     }
 
-    // Add status if known malware
+    // Add status if suspicious patterns detected
     if assessment
         .risk_reasons
         .iter()
         .any(|r| r.to_lowercase().contains("malware") || r.to_lowercase().contains("malicious"))
     {
-        items.push("status: COMPROMISED".to_string());
+        items.push("status: requires review".to_string());
     }
 
     // Print items in tree format

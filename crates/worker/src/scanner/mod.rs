@@ -11,7 +11,7 @@ use capabilities::CapabilityExtractor;
 use common::{
     db::{NewAgenticThreat, NewPackage, NewPackageCve},
     AgenticThreatSummary, CveSummary, Database, NpmPackageMetadata, PackageCapabilities,
-    PypiPackageMetadata, Registry, RiskLevel, UsageDocs,
+    PypiPackageMetadata, Registry, RiskLevel, UsageDocs, VerificationStatus,
 };
 use cve::CveScanner;
 use std::sync::Arc;
@@ -95,12 +95,11 @@ pub fn calculate_trust_score_unified(metadata: Option<&PackageMetadata>) -> u8 {
     score.min(100)
 }
 
-/// Calculate risk level and reasons based on CVEs, threats, capabilities, and trust score
+/// Calculate risk level and reasons based on CVEs and verified agentic threats only.
+/// Capabilities and trust score are informational and do not affect risk level.
 pub fn calculate_risk(
     cves: &[CveSummary],
     agentic_threats: &[AgenticThreatSummary],
-    capabilities: &PackageCapabilities,
-    trust_score: u8,
 ) -> (RiskLevel, Vec<String>) {
     let mut reasons = Vec::new();
     let mut max_level = RiskLevel::Clean;
@@ -125,8 +124,12 @@ pub fn calculate_risk(
         }
     }
 
-    // Check agentic threats (use cautious language - these are automated assessments)
-    for threat in agentic_threats {
+    // Check agentic threats - only VERIFIED threats affect risk level
+    // (use cautious language - these are automated assessments that have been human-verified)
+    for threat in agentic_threats
+        .iter()
+        .filter(|t| t.verification_status == VerificationStatus::Verified)
+    {
         if threat.confidence > 0.8 {
             reasons.push(format!(
                 "Detected patterns consistent with {:?} ({}% confidence)",
@@ -146,28 +149,8 @@ pub fn calculate_risk(
         }
     }
 
-    // Check risky capabilities (factual observations, not judgments)
-    if capabilities.native.has_native {
-        reasons.push("Package includes native code modules".to_string());
-        if max_level == RiskLevel::Clean {
-            max_level = RiskLevel::Warning;
-        }
-    }
-
-    if capabilities.process.spawns_children {
-        reasons.push("Package can spawn child processes".to_string());
-        if max_level == RiskLevel::Clean {
-            max_level = RiskLevel::Warning;
-        }
-    }
-
-    // Low trust score
-    if trust_score < 30 {
-        reasons.push(format!("Low trust score assessed ({})", trust_score));
-        if max_level == RiskLevel::Clean {
-            max_level = RiskLevel::Warning;
-        }
-    }
+    // Note: Capabilities (native code, child processes) and trust score are informational only
+    // and do not affect risk_level. Only CVEs and verified agentic threats determine risk.
 
     (max_level, reasons)
 }
@@ -523,9 +506,8 @@ impl PackageScanner {
         // Calculate trust score using adapter
         let trust_score = adapter.compute_trust_score(metadata);
 
-        // Determine risk level
-        let (risk_level, risk_reasons) =
-            calculate_risk(&cves, &agentic_threats, &capabilities, trust_score);
+        // Determine risk level (based on CVEs and verified agentic threats only)
+        let (risk_level, risk_reasons) = calculate_risk(&cves, &agentic_threats);
 
         // Generate SKILL.md
         let skill_md = generate_skill_md(
@@ -792,7 +774,7 @@ mod tests {
 
     #[test]
     fn test_risk_clean_package() {
-        let (level, reasons) = calculate_risk(&[], &[], &PackageCapabilities::default(), 75);
+        let (level, reasons) = calculate_risk(&[], &[]);
         assert_eq!(level, RiskLevel::Clean);
         assert!(reasons.is_empty());
     }
@@ -805,7 +787,7 @@ mod tests {
             description: Some("Bad vulnerability".to_string()),
             fixed_in: Some("2.0.0".to_string()),
         }];
-        let (level, reasons) = calculate_risk(&cves, &[], &PackageCapabilities::default(), 75);
+        let (level, reasons) = calculate_risk(&cves, &[]);
         assert_eq!(level, RiskLevel::Critical);
         assert!(reasons.iter().any(|r| r.contains("CVE-2024-1234")));
     }
@@ -818,7 +800,7 @@ mod tests {
             description: None,
             fixed_in: None,
         }];
-        let (level, _) = calculate_risk(&cves, &[], &PackageCapabilities::default(), 75);
+        let (level, _) = calculate_risk(&cves, &[]);
         assert_eq!(
             level,
             RiskLevel::Critical,
@@ -834,7 +816,7 @@ mod tests {
             description: None,
             fixed_in: None,
         }];
-        let (level, _) = calculate_risk(&cves, &[], &PackageCapabilities::default(), 75);
+        let (level, _) = calculate_risk(&cves, &[]);
         assert_eq!(
             level,
             RiskLevel::Warning,
@@ -849,8 +831,9 @@ mod tests {
             confidence: 0.9,
             location: Some("README.md".to_string()),
             snippet: Some("ignore previous instructions".to_string()),
+            verification_status: VerificationStatus::Verified,
         }];
-        let (level, reasons) = calculate_risk(&[], &threats, &PackageCapabilities::default(), 75);
+        let (level, reasons) = calculate_risk(&[], &threats);
         assert_eq!(level, RiskLevel::Critical);
         assert!(reasons.iter().any(|r| r.contains("PromptInjection")));
         assert!(reasons
@@ -865,21 +848,24 @@ mod tests {
             confidence: 0.6,
             location: None,
             snippet: None,
+            verification_status: VerificationStatus::Verified,
         }];
-        let (level, reasons) = calculate_risk(&[], &threats, &PackageCapabilities::default(), 75);
+        let (level, reasons) = calculate_risk(&[], &threats);
         assert_eq!(level, RiskLevel::Warning);
         assert!(reasons.iter().any(|r| r.contains("Flagged for potential")));
     }
 
     #[test]
     fn test_risk_low_confidence_threat_ignored() {
+        // Even verified threats with low confidence should be ignored
         let threats = vec![AgenticThreatSummary {
             threat_type: ThreatType::SocialEngineering,
             confidence: 0.3,
             location: None,
             snippet: None,
+            verification_status: VerificationStatus::Verified,
         }];
-        let (level, reasons) = calculate_risk(&[], &threats, &PackageCapabilities::default(), 75);
+        let (level, reasons) = calculate_risk(&[], &threats);
         assert_eq!(
             level,
             RiskLevel::Clean,
@@ -889,32 +875,22 @@ mod tests {
     }
 
     #[test]
-    fn test_risk_native_code() {
-        let mut capabilities = PackageCapabilities::default();
-        capabilities.native.has_native = true;
-        let (level, reasons) = calculate_risk(&[], &[], &capabilities, 75);
-        assert_eq!(level, RiskLevel::Warning);
-        assert!(reasons.iter().any(|r| r.contains("native code")));
-    }
-
-    #[test]
-    fn test_risk_spawns_children() {
-        let mut capabilities = PackageCapabilities::default();
-        capabilities.process.spawns_children = true;
-        let (level, reasons) = calculate_risk(&[], &[], &capabilities, 75);
-        assert_eq!(level, RiskLevel::Warning);
-        assert!(reasons
-            .iter()
-            .any(|r| r.contains("can spawn child processes")));
-    }
-
-    #[test]
-    fn test_risk_low_trust_score() {
-        let (level, reasons) = calculate_risk(&[], &[], &PackageCapabilities::default(), 25);
-        assert_eq!(level, RiskLevel::Warning);
-        assert!(reasons
-            .iter()
-            .any(|r| r.contains("Low trust score assessed")));
+    fn test_risk_unverified_threat_ignored() {
+        // Unverified threats should not affect risk level regardless of confidence
+        let threats = vec![AgenticThreatSummary {
+            threat_type: ThreatType::PromptInjection,
+            confidence: 0.95,
+            location: Some("README.md".to_string()),
+            snippet: Some("ignore previous instructions".to_string()),
+            verification_status: VerificationStatus::Pending,
+        }];
+        let (level, reasons) = calculate_risk(&[], &threats);
+        assert_eq!(
+            level,
+            RiskLevel::Clean,
+            "Unverified threats should not affect risk level"
+        );
+        assert!(reasons.is_empty());
     }
 
     #[test]
@@ -933,7 +909,7 @@ mod tests {
                 fixed_in: None,
             },
         ];
-        let (level, _) = calculate_risk(&cves, &[], &PackageCapabilities::default(), 75);
+        let (level, _) = calculate_risk(&cves, &[]);
         assert_eq!(
             level,
             RiskLevel::Critical,

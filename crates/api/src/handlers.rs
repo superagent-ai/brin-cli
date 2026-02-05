@@ -181,6 +181,7 @@ pub async fn get_package(
                 confidence: t.confidence,
                 location: t.location,
                 snippet: t.snippet,
+                verification_status: t.verification_status,
             })
             .collect(),
         capabilities,
@@ -277,6 +278,7 @@ pub async fn get_package_version(
                 confidence: t.confidence,
                 location: t.location,
                 snippet: t.snippet,
+                verification_status: t.verification_status,
             })
             .collect(),
         capabilities,
@@ -381,6 +383,7 @@ pub async fn bulk_lookup(
                     confidence: t.confidence,
                     location: t.location,
                     snippet: t.snippet,
+                    verification_status: t.verification_status,
                 })
                 .collect(),
             capabilities,

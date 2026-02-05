@@ -100,6 +100,18 @@ pub enum Registry {
     Crates,
 }
 
+/// Verification status for agentic threats
+/// Only verified threats affect risk_level and are shown to CLI users
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, Default)]
+#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum VerificationStatus {
+    #[default]
+    Pending,
+    InProgress,
+    Verified,
+}
+
 impl Registry {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -160,6 +172,8 @@ pub struct AgenticThreat {
     pub location: Option<String>,
     pub snippet: Option<String>,
     pub detected_at: DateTime<Utc>,
+    /// Verification status - only verified threats affect risk_level
+    pub verification_status: VerificationStatus,
 }
 
 /// Network capabilities of a package
@@ -322,6 +336,8 @@ pub struct AgenticThreatSummary {
     pub confidence: f32,
     pub location: Option<String>,
     pub snippet: Option<String>,
+    /// Verification status - only verified threats affect risk_level
+    pub verification_status: VerificationStatus,
 }
 
 /// Publisher information

@@ -125,12 +125,12 @@ impl Database {
         Ok(cves)
     }
 
-    /// Get agentic threats for a package
+    /// Get verified agentic threats for a package (only verified threats are returned)
     pub async fn get_package_threats(&self, package_id: i32) -> Result<Vec<AgenticThreat>> {
         let threats = sqlx::query_as::<_, AgenticThreat>(
             r#"
             SELECT * FROM agentic_threats 
-            WHERE package_id = $1
+            WHERE package_id = $1 AND verification_status = 'verified'
             "#,
         )
         .bind(package_id)
@@ -353,7 +353,7 @@ impl Database {
                     p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
                     p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
                     COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
-                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id AND verification_status = 'verified'), 0) as threat_count
                 FROM packages p
                 WHERE p.registry = $3
                 ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
@@ -379,7 +379,7 @@ impl Database {
                     p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
                     p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
                     COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
-                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id AND verification_status = 'verified'), 0) as threat_count
                 FROM packages p
                 ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
                 LIMIT $1 OFFSET $2
@@ -418,7 +418,7 @@ impl Database {
                     p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
                     p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
                     COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
-                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id AND verification_status = 'verified'), 0) as threat_count
                 FROM packages p
                 WHERE p.name ILIKE $1 AND p.registry = $5
                 ORDER BY 
@@ -456,7 +456,7 @@ impl Database {
                     p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
                     p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
                     COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
-                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id AND verification_status = 'verified'), 0) as threat_count
                 FROM packages p
                 WHERE p.name ILIKE $1
                 ORDER BY 
@@ -508,7 +508,7 @@ impl Database {
                     p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
                     p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
                     COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
-                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id AND verification_status = 'verified'), 0) as threat_count
                 FROM latest p
                 ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
                 LIMIT $1 OFFSET $2
@@ -540,7 +540,7 @@ impl Database {
                     p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
                     p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
                     COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
-                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id AND verification_status = 'verified'), 0) as threat_count
                 FROM latest p
                 ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
                 LIMIT $1 OFFSET $2
@@ -586,7 +586,7 @@ impl Database {
                     p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
                     p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
                     COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
-                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id AND verification_status = 'verified'), 0) as threat_count
                 FROM latest p
                 ORDER BY 
                     CASE 
@@ -629,7 +629,7 @@ impl Database {
                     p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
                     p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
                     COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
-                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id AND verification_status = 'verified'), 0) as threat_count
                 FROM latest p
                 ORDER BY 
                     CASE 
