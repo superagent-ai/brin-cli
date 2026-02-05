@@ -40,7 +40,7 @@ gcloud run deploy sus-worker \
   --platform managed \
   --allow-unauthenticated \
   --min-instances 1 \
-  --set-env-vars "DATABASE_URL=$DATABASE_URL,REDIS_URL=$REDIS_URL,ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY,GITHUB_TOKEN=$GITHUB_TOKEN,RUST_LOG=info"
+  --set-env-vars "DATABASE_URL=$DATABASE_URL,REDIS_URL=$REDIS_URL,AWS_BEARER_TOKEN_BEDROCK=$AWS_BEARER_TOKEN_BEDROCK,AWS_REGION=$AWS_REGION,GITHUB_TOKEN=$GITHUB_TOKEN,RUST_LOG=info"
 ```
 
 ### API (serves package data)
