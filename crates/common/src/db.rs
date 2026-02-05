@@ -344,31 +344,60 @@ impl Database {
         &self,
         limit: i64,
         offset: i64,
+        registry: Option<&str>,
     ) -> Result<(Vec<PackageWithCounts>, i64)> {
-        // Single query with CVE/threat counts using subqueries (more efficient than JOINs for counts)
-        let packages: Vec<PackageWithCounts> = sqlx::query_as(
-            r#"
-            SELECT 
-                p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
-                p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
-                COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
-                COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
-            FROM packages p
-            ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
-            LIMIT $1 OFFSET $2
-            "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
-
-        // Get total count
-        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM packages")
-            .fetch_one(&self.pool)
+        let (packages, total) = if let Some(reg) = registry {
+            let packages: Vec<PackageWithCounts> = sqlx::query_as(
+                r#"
+                SELECT 
+                    p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
+                    p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
+                    COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                FROM packages p
+                WHERE p.registry = $3
+                ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
+                LIMIT $1 OFFSET $2
+                "#,
+            )
+            .bind(limit)
+            .bind(offset)
+            .bind(reg)
+            .fetch_all(&self.pool)
             .await?;
 
-        Ok((packages, total.0))
+            let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM packages WHERE registry = $1")
+                .bind(reg)
+                .fetch_one(&self.pool)
+                .await?;
+
+            (packages, total.0)
+        } else {
+            let packages: Vec<PackageWithCounts> = sqlx::query_as(
+                r#"
+                SELECT 
+                    p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
+                    p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
+                    COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                FROM packages p
+                ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
+                LIMIT $1 OFFSET $2
+                "#,
+            )
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+            let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM packages")
+                .fetch_one(&self.pool)
+                .await?;
+
+            (packages, total.0)
+        };
+
+        Ok((packages, total))
     }
 
     /// Search packages by name with pagination and CVE/threat counts
@@ -378,43 +407,85 @@ impl Database {
         query: &str,
         limit: i64,
         offset: i64,
+        registry: Option<&str>,
     ) -> Result<(Vec<PackageWithCounts>, i64)> {
         let pattern = format!("%{}%", query);
 
-        let packages: Vec<PackageWithCounts> = sqlx::query_as(
-            r#"
-            SELECT 
-                p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
-                p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
-                COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
-                COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
-            FROM packages p
-            WHERE p.name ILIKE $1
-            ORDER BY 
-                CASE 
-                    WHEN LOWER(p.name) = LOWER($2) THEN 0
-                    WHEN LOWER(p.name) LIKE LOWER($2) || '%' THEN 1
-                    ELSE 2
-                END,
-                p.weekly_downloads DESC NULLS LAST,
-                p.name ASC
-            LIMIT $3 OFFSET $4
-            "#,
-        )
-        .bind(&pattern)
-        .bind(query)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
-
-        // Get total count of matching packages
-        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM packages WHERE name ILIKE $1")
+        let (packages, total) = if let Some(reg) = registry {
+            let packages: Vec<PackageWithCounts> = sqlx::query_as(
+                r#"
+                SELECT 
+                    p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
+                    p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
+                    COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                FROM packages p
+                WHERE p.name ILIKE $1 AND p.registry = $5
+                ORDER BY 
+                    CASE 
+                        WHEN LOWER(p.name) = LOWER($2) THEN 0
+                        WHEN LOWER(p.name) LIKE LOWER($2) || '%' THEN 1
+                        ELSE 2
+                    END,
+                    p.weekly_downloads DESC NULLS LAST,
+                    p.name ASC
+                LIMIT $3 OFFSET $4
+                "#,
+            )
             .bind(&pattern)
+            .bind(query)
+            .bind(limit)
+            .bind(offset)
+            .bind(reg)
+            .fetch_all(&self.pool)
+            .await?;
+
+            let total: (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM packages WHERE name ILIKE $1 AND registry = $2",
+            )
+            .bind(&pattern)
+            .bind(reg)
             .fetch_one(&self.pool)
             .await?;
 
-        Ok((packages, total.0))
+            (packages, total.0)
+        } else {
+            let packages: Vec<PackageWithCounts> = sqlx::query_as(
+                r#"
+                SELECT 
+                    p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
+                    p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
+                    COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                FROM packages p
+                WHERE p.name ILIKE $1
+                ORDER BY 
+                    CASE 
+                        WHEN LOWER(p.name) = LOWER($2) THEN 0
+                        WHEN LOWER(p.name) LIKE LOWER($2) || '%' THEN 1
+                        ELSE 2
+                    END,
+                    p.weekly_downloads DESC NULLS LAST,
+                    p.name ASC
+                LIMIT $3 OFFSET $4
+                "#,
+            )
+            .bind(&pattern)
+            .bind(query)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+            let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM packages WHERE name ILIKE $1")
+                .bind(&pattern)
+                .fetch_one(&self.pool)
+                .await?;
+
+            (packages, total.0)
+        };
+
+        Ok((packages, total))
     }
 
     /// Get packages with pagination, latest version only per (name, registry)
@@ -422,36 +493,74 @@ impl Database {
         &self,
         limit: i64,
         offset: i64,
+        registry: Option<&str>,
     ) -> Result<(Vec<PackageWithCounts>, i64)> {
-        let packages: Vec<PackageWithCounts> = sqlx::query_as(
-            r#"
-            WITH latest AS (
-                SELECT DISTINCT ON (name, registry) *
-                FROM packages
-                ORDER BY name, registry, scanned_at DESC
+        let (packages, total) = if let Some(reg) = registry {
+            let packages: Vec<PackageWithCounts> = sqlx::query_as(
+                r#"
+                WITH latest AS (
+                    SELECT DISTINCT ON (name, registry) *
+                    FROM packages
+                    WHERE registry = $3
+                    ORDER BY name, registry, scanned_at DESC
+                )
+                SELECT 
+                    p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
+                    p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
+                    COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                FROM latest p
+                ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
+                LIMIT $1 OFFSET $2
+                "#,
             )
-            SELECT 
-                p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
-                p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
-                COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
-                COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
-            FROM latest p
-            ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
-            LIMIT $1 OFFSET $2
-            "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(limit)
+            .bind(offset)
+            .bind(reg)
+            .fetch_all(&self.pool)
+            .await?;
 
-        // Count unique packages (distinct name + registry combinations)
-        let total: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM (SELECT DISTINCT name, registry FROM packages) t")
-                .fetch_one(&self.pool)
-                .await?;
+            let total: (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM (SELECT DISTINCT name FROM packages WHERE registry = $1) t",
+            )
+            .bind(reg)
+            .fetch_one(&self.pool)
+            .await?;
 
-        Ok((packages, total.0))
+            (packages, total.0)
+        } else {
+            let packages: Vec<PackageWithCounts> = sqlx::query_as(
+                r#"
+                WITH latest AS (
+                    SELECT DISTINCT ON (name, registry) *
+                    FROM packages
+                    ORDER BY name, registry, scanned_at DESC
+                )
+                SELECT 
+                    p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
+                    p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
+                    COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                FROM latest p
+                ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
+                LIMIT $1 OFFSET $2
+                "#,
+            )
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+            let total: (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM (SELECT DISTINCT name, registry FROM packages) t",
+            )
+            .fetch_one(&self.pool)
+            .await?;
+
+            (packages, total.0)
+        };
+
+        Ok((packages, total))
     }
 
     /// Search packages by name, latest version only per (name, registry)
@@ -460,50 +569,97 @@ impl Database {
         query: &str,
         limit: i64,
         offset: i64,
+        registry: Option<&str>,
     ) -> Result<(Vec<PackageWithCounts>, i64)> {
         let pattern = format!("%{}%", query);
 
-        let packages: Vec<PackageWithCounts> = sqlx::query_as(
-            r#"
-            WITH latest AS (
-                SELECT DISTINCT ON (name, registry) *
-                FROM packages
-                WHERE name ILIKE $1
-                ORDER BY name, registry, scanned_at DESC
+        let (packages, total) = if let Some(reg) = registry {
+            let packages: Vec<PackageWithCounts> = sqlx::query_as(
+                r#"
+                WITH latest AS (
+                    SELECT DISTINCT ON (name, registry) *
+                    FROM packages
+                    WHERE name ILIKE $1 AND registry = $5
+                    ORDER BY name, registry, scanned_at DESC
+                )
+                SELECT 
+                    p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
+                    p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
+                    COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                FROM latest p
+                ORDER BY 
+                    CASE 
+                        WHEN LOWER(p.name) = LOWER($2) THEN 0
+                        WHEN LOWER(p.name) LIKE LOWER($2) || '%' THEN 1
+                        ELSE 2
+                    END,
+                    p.weekly_downloads DESC NULLS LAST,
+                    p.name ASC
+                LIMIT $3 OFFSET $4
+                "#,
             )
-            SELECT 
-                p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
-                p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
-                COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
-                COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
-            FROM latest p
-            ORDER BY 
-                CASE 
-                    WHEN LOWER(p.name) = LOWER($2) THEN 0
-                    WHEN LOWER(p.name) LIKE LOWER($2) || '%' THEN 1
-                    ELSE 2
-                END,
-                p.weekly_downloads DESC NULLS LAST,
-                p.name ASC
-            LIMIT $3 OFFSET $4
-            "#,
-        )
-        .bind(&pattern)
-        .bind(query)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(&pattern)
+            .bind(query)
+            .bind(limit)
+            .bind(offset)
+            .bind(reg)
+            .fetch_all(&self.pool)
+            .await?;
 
-        // Count unique matching packages
-        let total: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM (SELECT DISTINCT name, registry FROM packages WHERE name ILIKE $1) t",
-        )
-        .bind(&pattern)
-        .fetch_one(&self.pool)
-        .await?;
+            let total: (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM (SELECT DISTINCT name FROM packages WHERE name ILIKE $1 AND registry = $2) t",
+            )
+            .bind(&pattern)
+            .bind(reg)
+            .fetch_one(&self.pool)
+            .await?;
 
-        Ok((packages, total.0))
+            (packages, total.0)
+        } else {
+            let packages: Vec<PackageWithCounts> = sqlx::query_as(
+                r#"
+                WITH latest AS (
+                    SELECT DISTINCT ON (name, registry) *
+                    FROM packages
+                    WHERE name ILIKE $1
+                    ORDER BY name, registry, scanned_at DESC
+                )
+                SELECT 
+                    p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
+                    p.publisher_verified, p.weekly_downloads, p.capabilities, p.scanned_at,
+                    COALESCE((SELECT COUNT(*) FROM package_cves WHERE package_id = p.id), 0) as cve_count,
+                    COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id), 0) as threat_count
+                FROM latest p
+                ORDER BY 
+                    CASE 
+                        WHEN LOWER(p.name) = LOWER($2) THEN 0
+                        WHEN LOWER(p.name) LIKE LOWER($2) || '%' THEN 1
+                        ELSE 2
+                    END,
+                    p.weekly_downloads DESC NULLS LAST,
+                    p.name ASC
+                LIMIT $3 OFFSET $4
+                "#,
+            )
+            .bind(&pattern)
+            .bind(query)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+
+            let total: (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM (SELECT DISTINCT name, registry FROM packages WHERE name ILIKE $1) t",
+            )
+            .bind(&pattern)
+            .fetch_one(&self.pool)
+            .await?;
+
+            (packages, total.0)
+        };
+
+        Ok((packages, total))
     }
 }
 

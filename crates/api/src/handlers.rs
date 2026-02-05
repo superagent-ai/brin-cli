@@ -30,17 +30,27 @@ pub async fn list_packages(
     let offset = params.offset.unwrap_or(0);
 
     let latest = params.latest.unwrap_or(false);
+    let registry = params.registry.as_deref();
 
     let (packages, total) = if let Some(ref q) = params.q {
         if latest {
-            state.db.search_packages_latest(q, limit, offset).await
+            state
+                .db
+                .search_packages_latest(q, limit, offset, registry)
+                .await
         } else {
-            state.db.search_packages(q, limit, offset).await
+            state.db.search_packages(q, limit, offset, registry).await
         }
     } else if latest {
-        state.db.get_packages_paginated_latest(limit, offset).await
+        state
+            .db
+            .get_packages_paginated_latest(limit, offset, registry)
+            .await
     } else {
-        state.db.get_packages_paginated(limit, offset).await
+        state
+            .db
+            .get_packages_paginated(limit, offset, registry)
+            .await
     }
     .map_err(|e| {
         tracing::error!("Database error: {}", e);
