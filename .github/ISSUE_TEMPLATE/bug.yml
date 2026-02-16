@@ -19,7 +19,7 @@ body:
     attributes:
       label: Steps to reproduce
       placeholder: |
-        1. Run `sus add ...`
+        1. Run `brin add ...`
         2. ...
   - type: input
     id: version

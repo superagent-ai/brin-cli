@@ -51,7 +51,7 @@ pub async fn run(client: &SusClient, package: &str) -> Result<()> {
                 ui::finish_spinner(&pb, "❓", "not in database");
                 println!();
                 println!(
-                    "  {} is not yet in the sus database.",
+                    "  {} is not yet in the brin database.",
                     display_name.yellow()
                 );
                 println!();
@@ -68,7 +68,7 @@ pub async fn run(client: &SusClient, package: &str) -> Result<()> {
                         println!();
                         println!(
                             "  run {} again in a moment.",
-                            format!("sus check {}", package).cyan()
+                            format!("brin check {}", package).cyan()
                         );
                     }
                     Err(scan_err) => {

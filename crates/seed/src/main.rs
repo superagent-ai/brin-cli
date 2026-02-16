@@ -220,7 +220,7 @@ async fn main() -> Result<()> {
         Registry::Crates => "crates.io",
     };
 
-    println!("🌱 sus database seeder ({})\n", registry_name);
+    println!("🌱 brin database seeder ({})\n", registry_name);
 
     let mut packages: HashSet<String> = HashSet::new();
     let client = reqwest::Client::builder()

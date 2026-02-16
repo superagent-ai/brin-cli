@@ -22,7 +22,7 @@ impl PypiAdapter {
     pub fn new() -> Self {
         Self {
             client: Client::builder()
-                .user_agent(format!("sus-worker/{}", env!("CARGO_PKG_VERSION")))
+                .user_agent(format!("brin-worker/{}", env!("CARGO_PKG_VERSION")))
                 .build()
                 .expect("Failed to create HTTP client"),
             registry_url: std::env::var("PYPI_REGISTRY_URL")

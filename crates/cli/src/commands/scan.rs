@@ -102,7 +102,7 @@ pub async fn run(client: &SusClient, json: bool) -> Result<()> {
     for assessment in &critical {
         println!();
         println!("📦 {}@{}", assessment.name.red().bold(), assessment.version);
-        print!("   🚨 MEGA SUS");
+        print!("   🚨 high risk");
         if let Some(reason) = assessment.risk_reasons.first() {
             print!(" — {}", reason.red());
         }
@@ -113,7 +113,7 @@ pub async fn run(client: &SusClient, json: bool) -> Result<()> {
     for assessment in &warnings {
         println!();
         println!("📦 {}@{}", assessment.name.yellow(), assessment.version);
-        print!("   ⚠️  kinda sus");
+        print!("   ⚠️  heads up");
         if let Some(cve) = assessment.cves.first() {
             let severity = cve.severity.as_deref().unwrap_or("unknown");
             print!(" — {} ({})", cve.cve_id.yellow(), severity.to_lowercase());
@@ -133,7 +133,7 @@ pub async fn run(client: &SusClient, json: bool) -> Result<()> {
             println!("   {} {}@{}", "?".dimmed(), dep.name, dep.version);
         }
         println!();
-        println!("   run {} to request scans", "sus check <package>".cyan());
+        println!("   run {} to request scans", "brin check <package>".cyan());
         println!();
     }
 

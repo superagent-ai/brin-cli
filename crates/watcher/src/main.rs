@@ -1,4 +1,4 @@
-//! sus Registry Watcher - monitors npm and PyPI for package updates
+//! brin Registry Watcher - monitors npm and PyPI for package updates
 //!
 //! Uses a sweep-based approach: iterates through all tracked packages in the database
 //! and checks each one against its registry for version updates. Rate-limited to
@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "sus_watcher=info".into()),
+                .unwrap_or_else(|_| "brin_watcher=info".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

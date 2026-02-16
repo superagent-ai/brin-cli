@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "sus-cve"
+name = "brin-cve"
 path = "src/main.rs"
 
 [dependencies]

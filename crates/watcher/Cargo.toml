@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "sus-watcher"
+name = "brin-watcher"
 path = "src/main.rs"
 
 [dependencies]

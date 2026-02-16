@@ -1,4 +1,4 @@
-//! sus CVE Enrichment Worker - keeps CVE data fresh
+//! brin CVE Enrichment Worker - keeps CVE data fresh
 
 mod github_advisory;
 #[allow(dead_code)]
@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "sus_cve=info".into()),
+                .unwrap_or_else(|_| "brin_cve=info".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -46,7 +46,7 @@ async fn main() -> Result<()> {
 
     // Now connect to database (with retries)
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://sus:sus@localhost:5432/sus".to_string());
+        .unwrap_or_else(|_| "postgres://brin:brin@localhost:5432/brin".to_string());
 
     let db = loop {
         tracing::info!("Connecting to database...");

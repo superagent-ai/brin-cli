@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="sus" height="120">
+  <img src="assets/logo.png" alt="brin" height="120">
 </p>
 
-<h1 align="center">sus</h1>
+<h1 align="center">brin</h1>
 <p align="center">
   package gateway for ai agents
 </p>
@@ -36,7 +36,7 @@ npm install expresss  # <-- oops, malware
 npm install event-stream@3.3.6  # <-- bitcoin stealer
 ```
 
-your agent doesn't know. **sus does.**
+your agent doesn't know. **brin does.**
 
 ---
 
@@ -45,48 +45,48 @@ your agent doesn't know. **sus does.**
 ### via npm (recommended for JavaScript projects)
 
 ```bash
-npm install -g sus
+npm install -g brin
 ```
 
 or with yarn:
 
 ```bash
-yarn global add sus
+yarn global add brin
 ```
 
 or with pnpm:
 
 ```bash
-pnpm add -g sus
+pnpm add -g brin
 ```
 
 ### via shell script
 
 ```bash
-curl -fsSL https://sus-pm.com/install.sh | sh
+curl -fsSL https://brin.sh/install.sh | sh
 ```
 
 ---
 
 ## usage
 
-### initialize sus
+### initialize brin
 
 ```bash
-sus init
+brin init
 ```
 
-configures sus for your project. optionally enables AGENTS.md docs index for AI coding agents.
+configures brin for your project. optionally enables AGENTS.md docs index for AI coding agents.
 
 ### add packages (with safety checks)
 
 ```bash
-sus add express
+brin add express
 ```
 
 ```
 🔍 checking express@4.21.0...
-✅ not sus
+✅ all clear
    ├─ publisher: expressjs (verified)
    ├─ downloads: 32M/week
    ├─ cves: 0
@@ -94,15 +94,15 @@ sus add express
 📦 installed
 ```
 
-### when something's actually sus
+### when something's risky
 
 ```bash
-sus add event-stream@3.3.6
+brin add event-stream@3.3.6
 ```
 
 ```
 🔍 checking event-stream@3.3.6...
-🚨 MEGA SUS
+🚨 high risk
    ├─ malware: flatmap-stream injection
    ├─ targets: cryptocurrency wallets
    └─ status: COMPROMISED
@@ -113,19 +113,19 @@ sus add event-stream@3.3.6
 ### scan existing project
 
 ```bash
-sus scan
+brin scan
 ```
 
 ```
 🔍 scanning node_modules (847 packages)...
 
 📦 lodash@4.17.20
-   ⚠️  kinda sus — CVE-2021-23337 (prototype pollution)
-   └─ fix: sus update lodash
+   ⚠️  heads up — CVE-2021-23337 (prototype pollution)
+   └─ fix: brin update lodash
 
 📦 node-ipc@10.1.0
-   🚨 MEGA SUS — known sabotage (march 2022)
-   └─ fix: sus remove node-ipc
+   🚨 high risk — known sabotage (march 2022)
+   └─ fix: brin remove node-ipc
 
 ───────────────────────────────────
 summary: 845 clean, 1 warning, 1 critical
@@ -134,32 +134,32 @@ summary: 845 clean, 1 warning, 1 critical
 ### check without installing
 
 ```bash
-sus check lodash
+brin check lodash
 ```
 
 ### other commands
 
 ```bash
-sus init             # initialize sus in project
-sus add <pkg>        # install with safety checks
-sus remove <pkg>     # uninstall
-sus scan             # audit current project
-sus check <pkg>      # lookup without installing
-sus update           # update deps + re-scan
-sus why <pkg>        # why is this in my tree?
+brin init             # initialize brin in project
+brin add <pkg>        # install with safety checks
+brin remove <pkg>     # uninstall
+brin scan             # audit current project
+brin check <pkg>      # lookup without installing
+brin update           # update deps + re-scan
+brin why <pkg>        # why is this in my tree?
 ```
 
 ### flags
 
 ```bash
-sus add express --yolo        # skip checks (not recommended)
-sus add express --strict      # fail on any warning
-sus scan --json               # machine-readable output
+brin add express --yolo        # skip checks (not recommended)
+brin add express --strict      # fail on any warning
+brin scan --json               # machine-readable output
 ```
 
 ---
 
-## what sus detects
+## what brin detects
 
 ### traditional threats
 - ✅ known malware (event-stream, node-ipc, etc.)
@@ -178,10 +178,10 @@ sus scan --json               # machine-readable output
 
 ## AGENTS.md docs index
 
-sus can generate a compressed docs index in your `AGENTS.md` file, following [Vercel's research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals) showing that passive context outperforms active skill retrieval (100% vs 79% pass rate in their evals).
+brin can generate a compressed docs index in your `AGENTS.md` file, following [Vercel's research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals) showing that passive context outperforms active skill retrieval (100% vs 79% pass rate in their evals).
 
-run `sus init` to enable this feature. when enabled:
-- package documentation is saved to `.sus-docs/`
+run `brin init` to enable this feature. when enabled:
+- package documentation is saved to `.brin-docs/`
 - `AGENTS.md` is updated with a compressed index pointing to these docs
 - your AI agent gets version-matched documentation without needing to invoke skills
 
@@ -193,7 +193,7 @@ this approach ensures your agent uses retrieval-led reasoning over potentially o
 
 ```
 ┌─────────────────────────────────────────────┐
-│           sus backend (superagent)          │
+│          brin backend (superagent)           │
 ├─────────────────────────────────────────────┤
 │  npm watcher → scan queue → scan workers    │
 │                                             │
@@ -204,15 +204,15 @@ this approach ensures your agent uses retrieval-led reasoning over potentially o
 │  • trust signals (downloads, maintainers)   │
 │                                             │
 │  stores results in database                 │
-│  serves via api.sus-pm.com                  │
+│  serves via api.brin.sh                 │
 └─────────────────────────────────────────────┘
                       │
                       ▼
 ┌─────────────────────────────────────────────┐
-│              sus cli (your machine)         │
+│             brin cli (your machine)          │
 ├─────────────────────────────────────────────┤
-│  sus add express                            │
-│    → GET api.sus-pm.com/v1/packages/express │
+│  brin add express                           │
+│    → GET api.brin.sh/v1/packages/express│
 │    → get pre-computed risk assessment       │
 │    → install if safe                        │
 │    → update AGENTS.md docs index            │
@@ -225,20 +225,20 @@ all the heavy lifting (ml inference, ast analysis, cve correlation) happens on o
 
 ## for ai agents
 
-if you're building an agent that installs packages, sus is for you.
+if you're building an agent that installs packages, brin is for you.
 
-- **[Cursor](https://www.sus-pm.com/docs/guides/cursor)**
-- **[Claude Code](https://www.sus-pm.com/docs/guides/claude-code)**
-- **[OpenCode](https://www.sus-pm.com/docs/guides/opencode)**
-- **[Gemini CLI](https://www.sus-pm.com/docs/guides/gemini-cli)**
-- **[Codex CLI](https://www.sus-pm.com/docs/guides/codex-cli)**
+- **[Cursor](https://www.brin.sh/docs/guides/cursor)**
+- **[Claude Code](https://www.brin.sh/docs/guides/claude-code)**
+- **[OpenCode](https://www.brin.sh/docs/guides/opencode)**
+- **[Gemini CLI](https://www.brin.sh/docs/guides/gemini-cli)**
+- **[Codex CLI](https://www.brin.sh/docs/guides/codex-cli)**
 
 ---
 
 ## comparison
 
-| feature | npm | yarn | pnpm | sus |
-|---------|-----|------|------|-----|
+| feature | npm | yarn | pnpm | brin |
+|---------|-----|------|------|------|
 | install packages | ✅ | ✅ | ✅ | ✅ |
 | cve scanning | `npm audit` | `yarn audit` | `pnpm audit` | ✅ built-in |
 | malware detection | ❌ | ❌ | ❌ | ✅ |
@@ -265,8 +265,8 @@ if you're building an agent that installs packages, sus is for you.
 
 ```bash
 # setup
-git clone https://github.com/superagent-ai/sus
-cd sus
+git clone https://github.com/superagent-ai/brin
+cd brin
 make setup              # configure git hooks
 
 # start databases + api + worker

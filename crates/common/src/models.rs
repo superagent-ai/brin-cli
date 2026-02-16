@@ -1,4 +1,4 @@
-//! Core data models for sus
+//! Core data models for brin
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

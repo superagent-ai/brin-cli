@@ -58,7 +58,7 @@ pub async fn run(
                 if e.to_string().contains("not found") {
                     ui::finish_spinner(&pb, "📦", &display_name);
                     println!(
-                        "  {} not in sus database yet, requesting scan...",
+                        "  {} not in brin database yet, requesting scan...",
                         display_name.yellow()
                     );
 
@@ -223,9 +223,9 @@ fn install_pypi_package(package: &str, pm: PypiPackageManager) -> Result<()> {
     Ok(())
 }
 
-/// Save package documentation to .sus-docs/ and update AGENTS.md index
+/// Save package documentation to .brin-docs/ and update AGENTS.md index
 fn save_package_docs(package_name: &str, doc_content: &str) {
-    // Save doc to .sus-docs/
+    // Save doc to .brin-docs/
     if let Err(e) = agents_md::save_doc(package_name, doc_content) {
         tracing::warn!("Failed to save package doc: {}", e);
         return;
@@ -240,7 +240,7 @@ fn save_package_docs(package_name: &str, doc_content: &str) {
     println!(
         "   {} saved docs to {} and updated {}",
         "📚".cyan(),
-        ".sus-docs/".cyan(),
+        ".brin-docs/".cyan(),
         "AGENTS.md".cyan()
     );
 }

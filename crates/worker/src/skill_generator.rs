@@ -70,7 +70,7 @@ pub fn generate_skill_md(
         description, package
     ));
     md.push_str(&format!(
-        "metadata:\n  package: {}\n  version: {}\n  generator: sus\n  generator-version: \"{}\"\n",
+        "metadata:\n  package: {}\n  version: {}\n  generator: brin\n  generator-version: \"{}\"\n",
         package,
         version,
         env!("CARGO_PKG_VERSION")
@@ -82,9 +82,9 @@ pub fn generate_skill_md(
 
     // Risk badge
     let badge = match risk_level {
-        RiskLevel::Clean => "![status](https://img.shields.io/badge/sus-clean-green)",
-        RiskLevel::Warning => "![status](https://img.shields.io/badge/sus-warning-yellow)",
-        RiskLevel::Critical => "![status](https://img.shields.io/badge/sus-critical-red)",
+        RiskLevel::Clean => "![status](https://img.shields.io/badge/brin-clean-green)",
+        RiskLevel::Warning => "![status](https://img.shields.io/badge/brin-warning-yellow)",
+        RiskLevel::Critical => "![status](https://img.shields.io/badge/brin-critical-red)",
     };
     md.push_str(badge);
     md.push_str("\n\n");

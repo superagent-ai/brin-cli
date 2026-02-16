@@ -1,4 +1,4 @@
-//! Init command - initialize sus in a project
+//! Init command - initialize brin in a project
 
 use crate::agents_md;
 use crate::config::{save_config, SusConfig};
@@ -7,18 +7,18 @@ use colored::Colorize;
 use dialoguer::Confirm;
 use std::path::Path;
 
-const CONFIG_FILE: &str = "sus.json";
+const CONFIG_FILE: &str = "brin.json";
 
 /// Run the init command
 pub async fn run(yes: bool) -> Result<()> {
     println!();
-    println!("  {} initializing sus...", "🔧".cyan());
+    println!("  {} initializing brin...", "🔧".cyan());
     println!();
 
     // Check if already initialized
     if Path::new(CONFIG_FILE).exists() {
         println!(
-            "  {} sus.json already exists. Reinitializing...",
+            "  {} brin.json already exists. Reinitializing...",
             "ℹ️".blue()
         );
         println!();
@@ -42,26 +42,26 @@ pub async fn run(yes: bool) -> Result<()> {
     // Save config
     save_config(&config)?;
     println!();
-    println!("  {} created sus.json", "✓".green());
+    println!("  {} created brin.json", "✓".green());
 
     if agents_md_enabled {
-        // Create .sus-docs directory
+        // Create .brin-docs directory
         agents_md::ensure_docs_dir()?;
-        println!("  {} created .sus-docs/", "✓".green());
+        println!("  {} created .brin-docs/", "✓".green());
 
         // Create/update AGENTS.md with initial index
         agents_md::update_agents_md_index()?;
-        println!("  {} updated AGENTS.md with sus docs index", "✓".green());
+        println!("  {} updated AGENTS.md with brin docs index", "✓".green());
 
         println!();
         println!(
             "  {} AGENTS.md docs index enabled. When you run {},",
             "📚".cyan(),
-            "sus add <package>".cyan()
+            "brin add <package>".cyan()
         );
         println!(
             "     package documentation will be saved to {} and indexed in {}.",
-            ".sus-docs/".cyan(),
+            ".brin-docs/".cyan(),
             "AGENTS.md".cyan()
         );
     } else {
@@ -69,12 +69,12 @@ pub async fn run(yes: bool) -> Result<()> {
         println!(
             "  {} AGENTS.md docs index disabled. You can enable it later by running {}.",
             "ℹ️".blue(),
-            "sus init".cyan()
+            "brin init".cyan()
         );
     }
 
     println!();
-    println!("  {} sus initialized successfully!", "✓".green());
+    println!("  {} brin initialized successfully!", "✓".green());
     println!();
 
     Ok(())

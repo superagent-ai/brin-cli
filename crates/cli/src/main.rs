@@ -1,4 +1,4 @@
-//! sus CLI - Security-first package gateway for AI agents
+//! brin CLI - Security-first package gateway for AI agents
 
 mod agents_md;
 mod api_client;
@@ -9,30 +9,22 @@ mod ui;
 
 use clap::{Parser, Subcommand};
 
-const BANNER: &str = r#"
-   ___  __  __  ___
-  / __// / / / / __/
- _\ \ / /_/ / _\ \ 
-/___/ \____/ /___/ 
-"#;
-
 #[derive(Parser)]
-#[command(name = "sus")]
-#[command(about = "is this package sus? 🔍 security-first package gateway for ai agents")]
-#[command(before_help = BANNER)]
+#[command(name = "brin")]
+#[command(about = "brin — 🔍 security-first package gateway for ai agents")]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 
     /// API endpoint to use
-    #[arg(long, env = "SUS_API_URL", default_value = "https://api.sus-pm.com")]
+    #[arg(long, env = "BRIN_API_URL", default_value = "https://api.brin.sh")]
     api_url: String,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize sus in the current project
+    /// Initialize brin in the current project
     Init {
         /// Skip prompts and use defaults (enables AGENTS.md docs)
         #[arg(long, short)]
@@ -85,18 +77,18 @@ enum Commands {
         package: String,
     },
 
-    /// Uninstall sus from this system
+    /// Uninstall brin from this system
     Uninstall {
         /// Skip confirmation prompt
         #[arg(long, short)]
         yes: bool,
 
-        /// Also remove project-level files (.sus-docs/, sus.json)
+        /// Also remove project-level files (.brin-docs/, brin.json)
         #[arg(long)]
         all: bool,
     },
 
-    /// Upgrade sus to the latest version
+    /// Upgrade brin to the latest version
     Upgrade {
         /// Force upgrade even if already on latest version
         #[arg(long)]
@@ -113,7 +105,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("sus=info".parse().unwrap()),
+                .add_directive("brin=info".parse().unwrap()),
         )
         .init();
 

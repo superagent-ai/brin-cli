@@ -5,8 +5,8 @@ use anyhow::Result;
 use deadpool_redis::{Config, Pool, Runtime};
 use redis::AsyncCommands;
 
-const QUEUE_KEY_PREFIX: &str = "sus:scan:queue:";
-const JOB_KEY_PREFIX: &str = "sus:scan:job:";
+const QUEUE_KEY_PREFIX: &str = "brin:scan:queue:";
+const JOB_KEY_PREFIX: &str = "brin:scan:job:";
 
 /// Redis-backed priority scan queue
 #[derive(Clone)]

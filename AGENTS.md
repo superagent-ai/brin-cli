@@ -1,8 +1,8 @@
-# sus — Agent Instructions
+# brin — Agent Instructions
 
 ## Project Overview
 
-sus is a secure package gateway for agents. It wraps npm/yarn/pnpm/bun. Before installing any package, it checks a database of pre-scanned results (CVE lookups, static analysis, threat detection). No scanning happens at install time, so there's no slowdown. If the package passes, sus hands off to your actual package manager.
+brin is a secure package gateway for agents. It wraps npm/yarn/pnpm/bun. Before installing any package, it checks a database of pre-scanned results (CVE lookups, static analysis, threat detection). No scanning happens at install time, so there's no slowdown. If the package passes, brin hands off to your actual package manager.
 
 ## Legal & Communication Guidelines
 
@@ -15,7 +15,7 @@ Authoritative third-party data. State as fact.
 - Cite source: "per GitHub Advisory GHSA-xxxx" or "CVE-2024-xxxxx (OSV)"
 - OK: "lodash 4.17.20 has CVE-2021-23337 (GitHub Advisory)"
 
-### sus-Detected Issues (agentic threats, capability analysis)
+### brin-Detected Issues (agentic threats, capability analysis)
 
 Automated assessment. Use cautious language.
 - USE: "detected," "patterns consistent with," "risk indicators," "flagged," "assessed as"

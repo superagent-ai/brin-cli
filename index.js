@@ -1,8 +1,8 @@
-// This package provides the sus CLI binary
-// Use it via the command line: sus <command>
-// For documentation, visit: https://sus-pm.com
+// This package provides the brin CLI binary
+// Use it via the command line: brin <command>
+// For documentation, visit: https://brin.sh
 
 module.exports = {
   version: require('./package.json').version,
-  binaryPath: require('path').join(__dirname, 'bin', 'sus'),
+  binaryPath: require('path').join(__dirname, 'bin', 'brin'),
 };

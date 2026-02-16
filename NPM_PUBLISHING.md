@@ -1,10 +1,10 @@
 # NPM Publishing Guide
 
-This document explains how to publish the `sus` package to npm.
+This document explains how to publish the `brin` package to npm.
 
 ## Prerequisites
 
-1. **npm account**: You need an npm account with publishing rights for the `sus` package
+1. **npm account**: You need an npm account with publishing rights for the `brin` package
 2. **npm authentication**: Run `npm login` to authenticate
 3. **Release binaries**: Ensure GitHub releases exist for the version you're publishing
 
@@ -19,7 +19,7 @@ npm pack --dry-run
 ```
 
 This should show:
-- `bin/sus.js` - CLI wrapper script
+- `bin/brin.js` - CLI wrapper script
 - `scripts/postinstall.js` - Installation script
 - `index.js` - Main entry point
 - `package.json` - Package metadata
@@ -35,10 +35,10 @@ You can test the package locally before publishing:
 npm pack
 
 # Install it globally from the tarball
-npm install -g ./sus-0.1.8.tgz
+npm install -g ./brin-0.1.8.tgz
 
 # Test the installation
-sus --version
+brin --version
 ```
 
 ### 3. Publish to npm
@@ -47,10 +47,10 @@ sus --version
 
 1. Update the version in `package.json` and `Cargo.toml` (workspace.package.version)
 2. Ensure GitHub releases are created with binaries for:
-   - `sus-linux-x86_64.tar.gz`
-   - `sus-linux-aarch64.tar.gz`
-   - `sus-darwin-x86_64.tar.gz`
-   - `sus-darwin-aarch64.tar.gz`
+   - `brin-linux-x86_64.tar.gz`
+   - `brin-linux-aarch64.tar.gz`
+   - `brin-darwin-x86_64.tar.gz`
+   - `brin-darwin-aarch64.tar.gz`
 3. Publish to npm:
 
 ```bash
@@ -63,11 +63,11 @@ After publishing, verify the package:
 
 ```bash
 # Check on npm
-npm view sus
+npm view brin
 
 # Test installation
-npm install -g sus
-sus --version
+npm install -g brin
+brin --version
 ```
 
 ## Version Management
@@ -91,7 +91,7 @@ When bumping versions:
 The postinstall script downloads pre-built binaries from GitHub releases. The binary naming convention is:
 
 ```
-sus-{os}-{arch}.tar.gz
+brin-{os}-{arch}.tar.gz
 ```
 
 Where:
@@ -101,7 +101,7 @@ Where:
 The postinstall script will:
 1. Detect the user's platform and architecture
 2. Download the appropriate binary from GitHub releases
-3. Extract it to `node_modules/sus/bin/`
+3. Extract it to `node_modules/brin/bin/`
 4. Make it executable
 
 ## Troubleshooting

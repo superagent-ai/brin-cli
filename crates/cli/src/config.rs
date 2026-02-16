@@ -1,12 +1,12 @@
-//! Configuration management for sus.json
+//! Configuration management for brin.json
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-const CONFIG_FILE: &str = "sus.json";
+const CONFIG_FILE: &str = "brin.json";
 
-/// sus project configuration
+/// brin project configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SusConfig {
     /// Whether to generate AGENTS.md docs index
@@ -14,7 +14,7 @@ pub struct SusConfig {
     pub agents_md: bool,
 }
 
-/// Load configuration from sus.json in current directory
+/// Load configuration from brin.json in current directory
 /// Returns None if file doesn't exist, errors on parse failures
 pub fn load_config() -> Option<SusConfig> {
     load_config_from_path(Path::new(CONFIG_FILE))
@@ -30,18 +30,18 @@ fn load_config_from_path(path: &Path) -> Option<SusConfig> {
         Ok(content) => match serde_json::from_str(&content) {
             Ok(config) => Some(config),
             Err(e) => {
-                tracing::warn!("Failed to parse sus.json: {}", e);
+                tracing::warn!("Failed to parse brin.json: {}", e);
                 None
             }
         },
         Err(e) => {
-            tracing::warn!("Failed to read sus.json: {}", e);
+            tracing::warn!("Failed to read brin.json: {}", e);
             None
         }
     }
 }
 
-/// Save configuration to sus.json in current directory
+/// Save configuration to brin.json in current directory
 pub fn save_config(config: &SusConfig) -> Result<()> {
     save_config_to_path(config, Path::new(CONFIG_FILE))
 }
@@ -66,7 +66,7 @@ mod tests {
     #[test]
     fn test_load_config_missing_file() {
         let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join("sus.json");
+        let config_path = temp_dir.path().join("brin.json");
 
         let config = load_config_from_path(&config_path);
         assert!(config.is_none());
@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn test_save_and_load_config() {
         let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join("sus.json");
+        let config_path = temp_dir.path().join("brin.json");
 
         let config = SusConfig { agents_md: true };
         save_config_to_path(&config, &config_path).unwrap();
@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn test_load_config_with_agents_md_false() {
         let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join("sus.json");
+        let config_path = temp_dir.path().join("brin.json");
 
         std::fs::write(&config_path, r#"{"agents_md": false}"#).unwrap();
 
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn test_load_config_defaults() {
         let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join("sus.json");
+        let config_path = temp_dir.path().join("brin.json");
 
         // Empty JSON object should use defaults
         std::fs::write(&config_path, r#"{}"#).unwrap();
@@ -110,7 +110,7 @@ mod tests {
     #[test]
     fn test_load_config_invalid_json() {
         let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join("sus.json");
+        let config_path = temp_dir.path().join("brin.json");
 
         std::fs::write(&config_path, "not valid json").unwrap();
 

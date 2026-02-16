@@ -4,13 +4,13 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-// Path to the actual sus binary
-const binaryPath = path.join(__dirname, 'sus');
+// Path to the actual brin binary
+const binaryPath = path.join(__dirname, 'brin');
 
 // Check if binary exists
 if (!fs.existsSync(binaryPath)) {
-  console.error('Error: sus binary not found. Please reinstall the package.');
-  console.error('Run: npm install @superagent/sus');
+  console.error('Error: brin binary not found. Please reinstall the package.');
+  console.error('Run: npm install @superagent/brin');
   process.exit(1);
 }
 
@@ -26,6 +26,6 @@ child.on('exit', (code) => {
 });
 
 child.on('error', (error) => {
-  console.error(`Error executing sus: ${error.message}`);
+  console.error(`Error executing brin: ${error.message}`);
   process.exit(1);
 });

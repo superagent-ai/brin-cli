@@ -1,12 +1,12 @@
 #!/bin/sh
 set -e
 
-# sus installer
-# Usage: curl -fsSL https://sus-pm.com/install.sh | sh
+# brin installer
+# Usage: curl -fsSL https://brin.sh/install.sh | sh
 
-REPO="superagent-ai/sus"
-BINARY="sus"
-INSTALL_DIR="${SUS_INSTALL_DIR:-$HOME/.local/bin}"
+REPO="superagent-ai/brin"
+BINARY="brin"
+INSTALL_DIR="${BRIN_INSTALL_DIR:-$HOME/.local/bin}"
 
 # Colors
 RED='\033[0;31m'
@@ -44,34 +44,34 @@ get_latest_version() {
 }
 
 main() {
-    info "Installing sus..."
+    info "Installing brin..."
 
     OS=$(detect_os)
     ARCH=$(detect_arch)
-    VERSION="${SUS_VERSION:-$(get_latest_version)}"
+    VERSION="${BRIN_VERSION:-$(get_latest_version)}"
 
     if [ -z "$VERSION" ]; then
-        error "Could not determine latest version. Set SUS_VERSION manually."
+        error "Could not determine latest version. Set BRIN_VERSION manually."
     fi
 
     info "Detected: $OS-$ARCH"
     info "Version: $VERSION"
 
     # Download URL
-    DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/sus-$OS-$ARCH.tar.gz"
+    DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/brin-$OS-$ARCH.tar.gz"
     
     # Create temp directory
     TMP_DIR=$(mktemp -d)
     trap "rm -rf $TMP_DIR" EXIT
 
     info "Downloading from $DOWNLOAD_URL..."
-    if ! curl -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/sus.tar.gz"; then
+    if ! curl -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/brin.tar.gz"; then
         error "Failed to download. Check if version $VERSION exists for $OS-$ARCH."
     fi
 
     # Extract
     info "Extracting..."
-    tar -xzf "$TMP_DIR/sus.tar.gz" -C "$TMP_DIR"
+    tar -xzf "$TMP_DIR/brin.tar.gz" -C "$TMP_DIR"
 
     # Install
     mkdir -p "$INSTALL_DIR"
@@ -90,9 +90,9 @@ main() {
         echo ""
     fi
 
-    info "Done! Run 'sus --help' to get started."
+    info "Done! Run 'brin --help' to get started."
     echo ""
-    echo "To uninstall later, run: sus uninstall"
+    echo "To uninstall later, run: brin uninstall"
 }
 
 main

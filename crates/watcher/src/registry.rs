@@ -17,7 +17,7 @@ impl RegistryClient {
     pub fn new() -> Self {
         Self {
             client: Client::builder()
-                .user_agent(format!("sus-watcher/{}", env!("CARGO_PKG_VERSION")))
+                .user_agent(format!("brin-watcher/{}", env!("CARGO_PKG_VERSION")))
                 .timeout(Duration::from_secs(15))
                 .build()
                 .expect("Failed to create HTTP client"),

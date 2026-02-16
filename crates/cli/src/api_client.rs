@@ -1,4 +1,4 @@
-//! API client for the sus backend
+//! API client for the brin backend
 
 use anyhow::{Context, Result};
 use common::{
@@ -7,7 +7,7 @@ use common::{
 };
 use reqwest::Client;
 
-/// Client for the sus API
+/// Client for the brin API
 pub struct SusClient {
     client: Client,
     base_url: String,
@@ -18,7 +18,7 @@ impl SusClient {
     pub fn new(base_url: &str) -> Self {
         Self {
             client: Client::builder()
-                .user_agent(format!("sus-cli/{}", env!("CARGO_PKG_VERSION")))
+                .user_agent(format!("brin-cli/{}", env!("CARGO_PKG_VERSION")))
                 .build()
                 .expect("Failed to create HTTP client"),
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -34,10 +34,10 @@ impl SusClient {
             .get(&url)
             .send()
             .await
-            .context("Failed to connect to sus API")?;
+            .context("Failed to connect to brin API")?;
 
         if response.status() == reqwest::StatusCode::NOT_FOUND {
-            anyhow::bail!("Package '{}' not found in sus database", name);
+            anyhow::bail!("Package '{}' not found in brin database", name);
         }
 
         response
@@ -57,10 +57,10 @@ impl SusClient {
             .get(&url)
             .send()
             .await
-            .context("Failed to connect to sus API")?;
+            .context("Failed to connect to brin API")?;
 
         if response.status() == reqwest::StatusCode::NOT_FOUND {
-            anyhow::bail!("Package '{}@{}' not found in sus database", name, version);
+            anyhow::bail!("Package '{}@{}' not found in brin database", name, version);
         }
 
         response
@@ -101,7 +101,7 @@ impl SusClient {
             .json(&request)
             .send()
             .await
-            .context("Failed to connect to sus API")?;
+            .context("Failed to connect to brin API")?;
 
         response
             .error_for_status()
@@ -128,7 +128,7 @@ impl SusClient {
             .json(&request)
             .send()
             .await
-            .context("Failed to connect to sus API")?;
+            .context("Failed to connect to brin API")?;
 
         response
             .error_for_status()

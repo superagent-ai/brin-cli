@@ -18,12 +18,12 @@ Cargo.lock
 # macOS
 .DS_Store
 
-# sus specific
-.sus-watcher-seq
-.sus/
+# brin specific
+.brin-watcher-seq
+.brin/
 
 # Logs
 *.log
 
-# Generated docs (in .sus-docs/, not root)
+# Generated docs (in .brin-docs/, not root)
 CLAUDE.md

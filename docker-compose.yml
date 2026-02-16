@@ -1,17 +1,19 @@
+name: brin
+
 services:
   # PostgreSQL database
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: sus
-      POSTGRES_PASSWORD: sus
-      POSTGRES_DB: sus
+      POSTGRES_USER: brin
+      POSTGRES_PASSWORD: brin
+      POSTGRES_DB: brin
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sus -d sus"]
+      test: ["CMD-SHELL", "pg_isready -U brin -d brin"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -35,9 +37,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgres://sus:sus@db:5432/sus
+      DATABASE_URL: postgres://brin:brin@db:5432/brin
       REDIS_URL: redis://redis:6379
-      RUST_LOG: sus_api=debug,tower_http=debug
+      RUST_LOG: brin_api=debug,tower_http=debug
     depends_on:
       db:
         condition: service_healthy
@@ -50,10 +52,10 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     environment:
-      DATABASE_URL: postgres://sus:sus@db:5432/sus
+      DATABASE_URL: postgres://brin:brin@db:5432/brin
       REDIS_URL: redis://redis:6379
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      RUST_LOG: sus_worker=debug
+      RUST_LOG: brin_worker=debug
     depends_on:
       db:
         condition: service_healthy
@@ -70,7 +72,7 @@ services:
     environment:
       REDIS_URL: redis://redis:6379
       POLL_INTERVAL_SECS: 60
-      RUST_LOG: sus_watcher=info
+      RUST_LOG: brin_watcher=info
     depends_on:
       redis:
         condition: service_healthy
@@ -81,11 +83,11 @@ services:
       context: .
       dockerfile: Dockerfile.cve
     environment:
-      DATABASE_URL: postgres://sus:sus@db:5432/sus
+      DATABASE_URL: postgres://brin:brin@db:5432/brin
       NVD_API_KEY: ${NVD_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       CVE_POLL_INTERVAL_MINS: 15
-      RUST_LOG: sus_cve=info
+      RUST_LOG: brin_cve=info
     depends_on:
       db:
         condition: service_healthy

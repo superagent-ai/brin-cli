@@ -1,4 +1,4 @@
-//! Upgrade command - update sus to the latest version
+//! Upgrade command - update brin to the latest version
 
 use anyhow::{anyhow, Result};
 use colored::Colorize;
@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use tar::Archive;
 
-const GITHUB_REPO: &str = "superagent-ai/sus";
+const GITHUB_REPO: &str = "superagent-ai/brin";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Deserialize)]
@@ -67,7 +67,7 @@ pub async fn run(force: bool) -> Result<()> {
 
     // Detect platform
     let (os, arch) = detect_platform()?;
-    let tarball_name = format!("sus-{}-{}.tar.gz", os, arch);
+    let tarball_name = format!("brin-{}-{}.tar.gz", os, arch);
 
     println!("   Downloading {}...", tarball_name.cyan());
 
@@ -79,7 +79,7 @@ pub async fn run(force: bool) -> Result<()> {
     println!(
         "   {} Restart your terminal or run '{}' to verify.",
         "note:".yellow(),
-        "sus --version".cyan()
+        "brin --version".cyan()
     );
     println!();
 
@@ -96,7 +96,7 @@ async fn get_latest_version() -> Result<String> {
     let client = reqwest::Client::new();
     let response = client
         .get(&url)
-        .header("User-Agent", "sus-cli")
+        .header("User-Agent", "brin-cli")
         .send()
         .await?;
 
@@ -134,7 +134,7 @@ fn detect_platform() -> Result<(String, String)> {
 
 /// Download the release tarball and install it
 async fn download_and_install(version: &str, os: &str, arch: &str) -> Result<()> {
-    let tarball_name = format!("sus-{}-{}.tar.gz", os, arch);
+    let tarball_name = format!("brin-{}-{}.tar.gz", os, arch);
     let download_url = format!(
         "https://github.com/{}/releases/download/{}/{}",
         GITHUB_REPO, version, tarball_name
@@ -144,7 +144,7 @@ async fn download_and_install(version: &str, os: &str, arch: &str) -> Result<()>
     let client = reqwest::Client::new();
     let response = client
         .get(&download_url)
-        .header("User-Agent", "sus-cli")
+        .header("User-Agent", "brin-cli")
         .send()
         .await?;
 
@@ -161,7 +161,7 @@ async fn download_and_install(version: &str, os: &str, arch: &str) -> Result<()>
     let bytes = response.bytes().await?;
 
     // Create temp directory
-    let temp_dir = std::env::temp_dir().join("sus-upgrade");
+    let temp_dir = std::env::temp_dir().join("brin-upgrade");
     fs::create_dir_all(&temp_dir)?;
 
     let tarball_path = temp_dir.join(&tarball_name);
@@ -176,7 +176,7 @@ async fn download_and_install(version: &str, os: &str, arch: &str) -> Result<()>
     archive.unpack(&temp_dir)?;
 
     // Find the extracted binary
-    let extracted_binary = temp_dir.join("sus");
+    let extracted_binary = temp_dir.join("brin");
     if !extracted_binary.exists() {
         return Err(anyhow!("Binary not found in archive"));
     }

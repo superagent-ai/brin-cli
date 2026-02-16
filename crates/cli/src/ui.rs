@@ -47,7 +47,7 @@ pub fn print_risk(assessment: &PackageResponse) {
 
 /// Print assessment for clean packages
 fn print_clean_assessment(assessment: &PackageResponse) {
-    println!("{}", "✅ not sus".green().bold());
+    println!("{}", "✅ all clear".green().bold());
 
     // Publisher
     if let Some(publisher) = &assessment.publisher {
@@ -83,7 +83,7 @@ fn print_clean_assessment(assessment: &PackageResponse) {
 
 /// Print assessment for warning packages
 fn print_warning_assessment(assessment: &PackageResponse) {
-    println!("{}", "⚠️  kinda sus".yellow().bold());
+    println!("{}", "⚠️  heads up".yellow().bold());
 
     // Publisher
     if let Some(publisher) = &assessment.publisher {
@@ -153,7 +153,7 @@ fn print_warning_assessment(assessment: &PackageResponse) {
 
 /// Print assessment for critical packages
 fn print_critical_assessment(assessment: &PackageResponse) {
-    println!("{}", "🚨 MEGA SUS".red().bold());
+    println!("{}", "🚨 high risk".red().bold());
 
     // Show the most critical issues first
     let mut items: Vec<String> = Vec::new();
