@@ -1,4 +1,4 @@
--- Initial database schema for brin
+-- Initial database schema for sus
 
 -- Packages table
 CREATE TABLE IF NOT EXISTS packages (

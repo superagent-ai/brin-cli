@@ -90,8 +90,10 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Stop health server
+    // Stop health server and wait for socket to release
     health_handle.abort();
+    let _ = health_handle.await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Create app state
     let state = Arc::new(AppState { db, queue });
@@ -105,9 +107,17 @@ async fn main() -> Result<()> {
         .layer(CompressionLayer::new())
         .layer(CorsLayer::permissive());
 
-    // Start full server
+    // Start full server with retries for port binding
     tracing::info!("Starting API server on {}", addr);
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let listener = loop {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => break l,
+            Err(e) => {
+                tracing::warn!("Port {} not ready yet: {}, retrying...", port, e);
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        }
+    };
     axum::serve(listener, app).await?;
 
     Ok(())
