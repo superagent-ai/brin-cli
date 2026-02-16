@@ -29,12 +29,12 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 
 # Copy binary
-COPY --from=builder /app/target/release/sus-watcher /usr/local/bin/
+COPY --from=builder /app/target/release/brin-watcher /usr/local/bin/
 
 # Create non-root user
-RUN adduser -D -u 1000 sus
-USER sus
+RUN adduser -D -u 1000 brin
+USER brin
 
 ENV RUST_LOG=info
 
-CMD ["sus-watcher"]
+CMD ["brin-watcher"]

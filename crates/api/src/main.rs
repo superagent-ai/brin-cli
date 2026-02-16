@@ -1,4 +1,4 @@
-//! sus API Server
+//! brin API Server
 
 mod handlers;
 mod routes;
@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "sus_api=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "brin_api=debug,tower_http=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
 
     // Database connection with retries
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://sus:sus@localhost:5432/sus".to_string());
+        .unwrap_or_else(|_| "postgres://brin:brin@localhost:5432/brin".to_string());
 
     let db = loop {
         tracing::info!("Connecting to database...");
@@ -90,8 +90,10 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Stop health server
+    // Stop health server and wait for socket to release
     health_handle.abort();
+    let _ = health_handle.await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Create app state
     let state = Arc::new(AppState { db, queue });
@@ -105,9 +107,17 @@ async fn main() -> Result<()> {
         .layer(CompressionLayer::new())
         .layer(CorsLayer::permissive());
 
-    // Start full server
+    // Start full server with retries for port binding
     tracing::info!("Starting API server on {}", addr);
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let listener = loop {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => break l,
+            Err(e) => {
+                tracing::warn!("Port {} not ready yet: {}, retrying...", port, e);
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        }
+    };
     axum::serve(listener, app).await?;
 
     Ok(())

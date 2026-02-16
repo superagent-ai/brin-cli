@@ -1,17 +1,17 @@
 {
-  "name": "sus-pm",
-  "version": "0.1.8",
+  "name": "brin",
+  "version": "0.1.9",
   "description": "Package gateway for AI agents - secure package installation with CVE scanning and threat detection",
   "main": "index.js",
   "bin": {
-    "sus": "./bin/sus.js"
+    "brin": "./bin/brin.js"
   },
   "scripts": {
     "postinstall": "node scripts/postinstall.js"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/superagent-ai/sus.git"
+    "url": "https://github.com/superagent-ai/brin.git"
   },
   "keywords": [
     "security",
@@ -25,12 +25,12 @@
     "prompt-injection",
     "typosquatting"
   ],
-  "author": "sus contributors",
+  "author": "brin contributors",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/superagent-ai/sus/issues"
+    "url": "https://github.com/superagent-ai/brin/issues"
   },
-  "homepage": "https://sus-pm.com",
+  "homepage": "https://brin.sh",
   "engines": {
     "node": ">=14.0.0"
   },

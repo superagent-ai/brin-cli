@@ -31,14 +31,14 @@ all: check build
 dev:
 	docker-compose up -d db redis
 	@echo "Starting API and worker..."
-	@trap 'kill 0' INT; cargo run --bin sus-api & cargo run --bin sus-worker & wait
+	@trap 'kill 0' INT; cargo run --bin brin-api & cargo run --bin brin-worker & wait
 
 # Start only the API
 dev-api:
 	docker-compose up -d db redis
-	cargo run --bin sus-api
+	cargo run --bin brin-api
 
 # Start only the worker
 dev-worker:
 	docker-compose up -d db redis
-	cargo run --bin sus-worker
+	cargo run --bin brin-worker

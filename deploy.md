@@ -26,16 +26,16 @@ set -a; source .env.production; set +a
 
 ```bash
 # Build
-docker build --platform linux/amd64 -f Dockerfile.worker -t us-central1-docker.pkg.dev/superagent-410019/sus/worker:latest .
+docker build --platform linux/amd64 -f Dockerfile.worker -t us-central1-docker.pkg.dev/superagent-410019/brin/worker:latest .
 
 # Push
-docker push us-central1-docker.pkg.dev/superagent-410019/sus/worker:latest
+docker push us-central1-docker.pkg.dev/superagent-410019/brin/worker:latest
 
 # Deploy
 set -a; source .env.production; set +a
 
-gcloud run deploy sus-worker \
-  --image us-central1-docker.pkg.dev/superagent-410019/sus/worker:latest \
+gcloud run deploy brin-worker \
+  --image us-central1-docker.pkg.dev/superagent-410019/brin/worker:latest \
   --region us-central1 \
   --platform managed \
   --allow-unauthenticated \
@@ -47,16 +47,16 @@ gcloud run deploy sus-worker \
 
 ```bash
 # Build
-docker build --platform linux/amd64 -f Dockerfile.api -t us-central1-docker.pkg.dev/superagent-410019/sus/api:latest .
+docker build --platform linux/amd64 -f Dockerfile.api -t us-central1-docker.pkg.dev/superagent-410019/brin/api:latest .
 
 # Push
-docker push us-central1-docker.pkg.dev/superagent-410019/sus/api:latest
+docker push us-central1-docker.pkg.dev/superagent-410019/brin/api:latest
 
 # Deploy
 set -a; source .env.production; set +a
 
-gcloud run deploy sus-api \
-  --image us-central1-docker.pkg.dev/superagent-410019/sus/api:latest \
+gcloud run deploy brin-api \
+  --image us-central1-docker.pkg.dev/superagent-410019/brin/api:latest \
   --region us-central1 \
   --platform managed \
   --allow-unauthenticated \
@@ -67,16 +67,16 @@ gcloud run deploy sus-api \
 
 ```bash
 # Build
-docker build --platform linux/amd64 -f Dockerfile.cve -t us-central1-docker.pkg.dev/superagent-410019/sus/cve:latest .
+docker build --platform linux/amd64 -f Dockerfile.cve -t us-central1-docker.pkg.dev/superagent-410019/brin/cve:latest .
 
 # Push
-docker push us-central1-docker.pkg.dev/superagent-410019/sus/cve:latest
+docker push us-central1-docker.pkg.dev/superagent-410019/brin/cve:latest
 
 # Deploy
 set -a; source .env.production; set +a
 
-gcloud run deploy sus-cve \
-  --image us-central1-docker.pkg.dev/superagent-410019/sus/cve:latest \
+gcloud run deploy brin-cve \
+  --image us-central1-docker.pkg.dev/superagent-410019/brin/cve:latest \
   --region us-central1 \
   --platform managed \
   --allow-unauthenticated \
@@ -88,16 +88,16 @@ gcloud run deploy sus-cve \
 
 ```bash
 # Build
-docker build --platform linux/amd64 -f Dockerfile.watcher -t us-central1-docker.pkg.dev/superagent-410019/sus/watcher:latest .
+docker build --platform linux/amd64 -f Dockerfile.watcher -t us-central1-docker.pkg.dev/superagent-410019/brin/watcher:latest .
 
 # Push
-docker push us-central1-docker.pkg.dev/superagent-410019/sus/watcher:latest
+docker push us-central1-docker.pkg.dev/superagent-410019/brin/watcher:latest
 
 # Deploy
 set -a; source .env.production; set +a
 
-gcloud run deploy sus-watcher \
-  --image us-central1-docker.pkg.dev/superagent-410019/sus/watcher:latest \
+gcloud run deploy brin-watcher \
+  --image us-central1-docker.pkg.dev/superagent-410019/brin/watcher:latest \
   --region us-central1 \
   --platform managed \
   --allow-unauthenticated \
@@ -151,10 +151,10 @@ cargo run --package seed -- --offset 1000 --count 2000 --include-ai
 ### Check service logs
 
 ```bash
-gcloud run services logs read sus-worker --region us-central1 --limit 50
-gcloud run services logs read sus-api --region us-central1 --limit 50
-gcloud run services logs read sus-cve --region us-central1 --limit 50
-gcloud run services logs read sus-watcher --region us-central1 --limit 50
+gcloud run services logs read brin-worker --region us-central1 --limit 50
+gcloud run services logs read brin-api --region us-central1 --limit 50
+gcloud run services logs read brin-cve --region us-central1 --limit 50
+gcloud run services logs read brin-watcher --region us-central1 --limit 50
 ```
 
 ### Check Redis queue
@@ -190,5 +190,5 @@ gcloud run services list --region us-central1
 ### Delete a service
 
 ```bash
-gcloud run services delete sus-watcher --region us-central1
+gcloud run services delete brin-watcher --region us-central1
 ```

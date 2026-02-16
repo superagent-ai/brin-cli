@@ -30,15 +30,15 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 
 # Copy binary and migrations
-COPY --from=builder /app/target/release/sus-api /usr/local/bin/
+COPY --from=builder /app/target/release/brin-api /usr/local/bin/
 COPY --from=builder /app/migrations ./migrations
 
 # Create non-root user
-RUN adduser -D -u 1000 sus
-USER sus
+RUN adduser -D -u 1000 brin
+USER brin
 
 EXPOSE 3000
 
 ENV RUST_LOG=info
 
-CMD ["sus-api"]
+CMD ["brin-api"]

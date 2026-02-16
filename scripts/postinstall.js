@@ -7,8 +7,8 @@ const { execSync } = require('child_process');
 const zlib = require('zlib');
 const tar = require('tar');
 
-const REPO = 'superagent-ai/sus';
-const BINARY_NAME = 'sus';
+const REPO = 'superagent-ai/brin';
+const BINARY_NAME = 'brin';
 
 // Color codes for terminal output
 const colors = {
@@ -64,7 +64,7 @@ function getLatestVersion() {
       hostname: 'api.github.com',
       path: `/repos/${REPO}/releases/latest`,
       headers: {
-        'User-Agent': 'sus-npm-installer',
+        'User-Agent': 'brin-npm-installer',
       },
     };
 
@@ -128,7 +128,7 @@ async function extractTarGz(tarPath, destDir) {
 
 async function install() {
   try {
-    log('📦 Installing sus...', colors.green);
+    log('📦 Installing brin...', colors.green);
 
     const { os, architecture } = detectPlatform();
     log(`   Detected: ${os}-${architecture}`);
@@ -139,7 +139,7 @@ async function install() {
     log(`   Version: ${version}`);
 
     // Construct download URL
-    const downloadUrl = `https://github.com/${REPO}/releases/download/${version}/sus-${os}-${architecture}.tar.gz`;
+    const downloadUrl = `https://github.com/${REPO}/releases/download/${version}/brin-${os}-${architecture}.tar.gz`;
     
     // Create bin directory
     const binDir = path.join(__dirname, '..', 'bin');
@@ -148,7 +148,7 @@ async function install() {
     }
 
     // Download binary
-    const tarPath = path.join(binDir, 'sus.tar.gz');
+    const tarPath = path.join(binDir, 'brin.tar.gz');
     log(`   Downloading from ${downloadUrl}...`);
     
     try {
@@ -171,8 +171,8 @@ async function install() {
     // Clean up tar file
     fs.unlinkSync(tarPath);
 
-    log('✅ sus installed successfully!', colors.green);
-    log('   Run "sus --help" to get started.');
+    log('✅ brin installed successfully!', colors.green);
+    log('   Run "brin --help" to get started.');
   } catch (error) {
     log(`❌ Installation failed: ${error.message}`, colors.red);
     process.exit(1);

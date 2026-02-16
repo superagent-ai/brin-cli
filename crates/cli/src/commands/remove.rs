@@ -28,7 +28,7 @@ pub async fn run(packages: Vec<String>) -> Result<()> {
 
         println!("  {} removed {}", "✓".green(), package);
 
-        // Remove docs from .sus-docs/ and update AGENTS.md index if enabled
+        // Remove docs from .brin-docs/ and update AGENTS.md index if enabled
         if agents_md_enabled {
             remove_package_docs(package);
         }
@@ -51,9 +51,9 @@ fn detect_package_manager() -> String {
     "npm".to_string()
 }
 
-/// Remove package documentation from .sus-docs/ and update AGENTS.md index
+/// Remove package documentation from .brin-docs/ and update AGENTS.md index
 fn remove_package_docs(package_name: &str) {
-    // Remove doc from .sus-docs/
+    // Remove doc from .brin-docs/
     match agents_md::remove_doc(package_name) {
         Ok(true) => {
             // Update AGENTS.md index
@@ -64,7 +64,7 @@ fn remove_package_docs(package_name: &str) {
             println!(
                 "  {} removed docs from {} and updated {}",
                 "📚".cyan(),
-                ".sus-docs/".cyan(),
+                ".brin-docs/".cyan(),
                 "AGENTS.md".cyan()
             );
         }

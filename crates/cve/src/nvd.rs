@@ -86,7 +86,7 @@ impl NvdClient {
     pub fn new(api_key: Option<String>) -> Self {
         Self {
             client: Client::builder()
-                .user_agent(format!("sus-cve/{}", env!("CARGO_PKG_VERSION")))
+                .user_agent(format!("brin-cve/{}", env!("CARGO_PKG_VERSION")))
                 .build()
                 .expect("Failed to create HTTP client"),
             api_key,

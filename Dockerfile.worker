@@ -31,19 +31,19 @@ RUN apk add --no-cache ca-certificates curl bash libstdc++ libgcc
 WORKDIR /app
 
 # Copy binary
-COPY --from=builder /app/target/release/sus-worker /usr/local/bin/
+COPY --from=builder /app/target/release/brin-worker /usr/local/bin/
 
 # Create non-root user and install OpenCode as that user
-RUN adduser -D -u 1000 sus
+RUN adduser -D -u 1000 brin
 
-# Install OpenCode as sus user (installs to ~/.opencode/bin/)
-USER sus
+# Install OpenCode as brin user (installs to ~/.opencode/bin/)
+USER brin
 RUN curl -fsSL https://opencode.ai/install | bash && \
-    /home/sus/.opencode/bin/opencode upgrade
+    /home/brin/.opencode/bin/opencode upgrade
 
 # Explicitly set HOME and PATH for Cloud Run
-ENV HOME="/home/sus"
-ENV PATH="/home/sus/.opencode/bin:/usr/local/bin:/usr/bin:/bin"
+ENV HOME="/home/brin"
+ENV PATH="/home/brin/.opencode/bin:/usr/local/bin:/usr/bin:/bin"
 ENV RUST_LOG=info
 
-CMD ["sus-worker"]
+CMD ["brin-worker"]

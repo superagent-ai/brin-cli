@@ -149,7 +149,7 @@ impl AgenticScanner {
 
         tracing::debug!("Running OpenCode threat scan in {:?}", package_dir);
 
-        let prompt = r#"# sus Package Security Scanner
+        let prompt = r#"# brin Package Security Scanner
 
 Scan this package for security threats. Analyze all files for both **agentic threats** (targeting AI systems) and **traditional vulnerabilities** (targeting applications/users).
 
@@ -393,7 +393,7 @@ Rules:
             .join(",\n");
 
         let prompt = format!(
-            r#"# sus Package Security Scanner — Verification Stage
+            r#"# brin Package Security Scanner — Verification Stage
 
 You are verifying threats flagged by an initial security scan. Your job is to **confirm or reject** each finding by checking if it actually exists and represents a real threat.
 

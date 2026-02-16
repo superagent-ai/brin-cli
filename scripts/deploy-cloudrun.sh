@@ -2,12 +2,12 @@
 set -e
 
 # =============================================================================
-# sus Cloud Run Deployment Script
+# brin Cloud Run Deployment Script
 # =============================================================================
 
 PROJECT_ID="superagent-410019"
 REGION="us-central1"
-REPO="sus"
+REPO="brin"
 
 # Colors
 RED='\033[0;31m'
@@ -15,9 +15,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-log() { echo -e "${GREEN}[sus]${NC} $1" >&2; }
-warn() { echo -e "${YELLOW}[sus]${NC} $1" >&2; }
-error() { echo -e "${RED}[sus]${NC} $1" >&2; exit 1; }
+log() { echo -e "${GREEN}[brin]${NC} $1" >&2; }
+warn() { echo -e "${YELLOW}[brin]${NC} $1" >&2; }
+error() { echo -e "${RED}[brin]${NC} $1" >&2; exit 1; }
 
 # =============================================================================
 # Load Environment Variables
@@ -61,7 +61,7 @@ gcloud artifacts repositories describe $REPO --location=$REGION 2>/dev/null || \
     gcloud artifacts repositories create $REPO \
         --repository-format=docker \
         --location=$REGION \
-        --description="sus container images"
+        --description="brin container images"
 
 # Configure Docker auth
 gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
@@ -74,7 +74,7 @@ log "Checking environment variables..."
 
 if [ -z "$DATABASE_URL" ]; then
     warn "DATABASE_URL not set. You'll need to set this in Cloud Run."
-    warn "Example: postgres://user:pass@host:5432/sus"
+    warn "Example: postgres://user:pass@host:5432/brin"
 fi
 
 if [ -z "$REDIS_URL" ]; then
@@ -142,7 +142,7 @@ fi
 # Deploy API (public, serves HTTP traffic)
 # min-instances=1 to avoid cold starts for better UX
 log "Deploying API..."
-gcloud run deploy sus-api \
+gcloud run deploy brin-api \
     --image $API_IMAGE \
     --region $REGION \
     --platform managed \
@@ -158,7 +158,7 @@ gcloud run deploy sus-api \
 # Deploy Worker (internal, processes scan jobs)
 # Note: --no-cpu-throttling requires minimum 512Mi memory
 log "Deploying Worker..."
-gcloud run deploy sus-worker \
+gcloud run deploy brin-worker \
     --image $WORKER_IMAGE \
     --region $REGION \
     --platform managed \
@@ -174,7 +174,7 @@ gcloud run deploy sus-worker \
 # Deploy Watcher (internal, monitors npm registry)
 # Note: --no-cpu-throttling requires minimum 512Mi memory
 log "Deploying Watcher..."
-gcloud run deploy sus-watcher \
+gcloud run deploy brin-watcher \
     --image $WATCHER_IMAGE \
     --region $REGION \
     --platform managed \
@@ -190,7 +190,7 @@ gcloud run deploy sus-watcher \
 # Deploy CVE Enricher (internal, fetches CVE data)
 # Note: --no-cpu-throttling requires minimum 512Mi memory
 log "Deploying CVE Enricher..."
-gcloud run deploy sus-cve \
+gcloud run deploy brin-cve \
     --image $CVE_IMAGE \
     --region $REGION \
     --platform managed \
@@ -213,7 +213,7 @@ echo "======================================"
 echo "Service URLs:"
 echo "======================================"
 
-API_URL=$(gcloud run services describe sus-api --region $REGION --format 'value(status.url)')
+API_URL=$(gcloud run services describe brin-api --region $REGION --format 'value(status.url)')
 echo "API:     $API_URL"
 echo ""
 echo "Test with:"
@@ -230,5 +230,5 @@ echo "  - REDIS_URL: Your Redis connection string"
 echo "  - ANTHROPIC_API_KEY: For agentic threat analysis (optional)"
 echo ""
 echo "You can set them with:"
-echo "  gcloud run services update sus-api --region $REGION --set-env-vars DATABASE_URL=...,REDIS_URL=..."
+echo "  gcloud run services update brin-api --region $REGION --set-env-vars DATABASE_URL=...,REDIS_URL=..."
 echo ""

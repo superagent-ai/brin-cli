@@ -1,4 +1,4 @@
-//! sus Scan Worker - processes package scan jobs from the queue
+//! brin Scan Worker - processes package scan jobs from the queue
 
 mod registry;
 mod scanner;
@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "sus_worker=debug".into()),
+                .unwrap_or_else(|_| "brin_worker=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
 
     // Database connection
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://sus:sus@localhost:5433/sus".to_string());
+        .unwrap_or_else(|_| "postgres://brin:brin@localhost:5433/brin".to_string());
 
     tracing::info!("Connecting to database...");
     let db = Database::new(&database_url).await?;

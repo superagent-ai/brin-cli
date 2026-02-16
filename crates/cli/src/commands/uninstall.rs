@@ -1,4 +1,4 @@
-//! Uninstall command - remove sus from the system
+//! Uninstall command - remove brin from the system
 
 use crate::agents_md;
 use anyhow::Result;
@@ -12,7 +12,7 @@ pub async fn run(yes: bool, all: bool) -> Result<()> {
     let exe_path = std::env::current_exe()?;
 
     println!();
-    println!("🗑️  sus uninstaller");
+    println!("🗑️  brin uninstaller");
     println!();
     println!(
         "   Binary location: {}",
@@ -20,26 +20,26 @@ pub async fn run(yes: bool, all: bool) -> Result<()> {
     );
 
     // Check for project-level files
-    let sus_docs = Path::new(".sus-docs");
-    let sus_json = Path::new("sus.json");
+    let brin_docs = Path::new(".brin-docs");
+    let brin_json = Path::new("brin.json");
     let agents_md = Path::new("AGENTS.md");
     let has_agents_md_section = agents_md.exists()
         && std::fs::read_to_string(agents_md)
-            .map(|c| c.contains("[sus Docs Index]"))
+            .map(|c| c.contains("[brin Docs Index]"))
             .unwrap_or(false);
-    let has_project_files = sus_docs.exists() || sus_json.exists() || has_agents_md_section;
+    let has_project_files = brin_docs.exists() || brin_json.exists() || has_agents_md_section;
 
     if all && has_project_files {
         println!();
         println!("   Project files to remove:");
-        if sus_docs.exists() {
-            println!("   - {}", ".sus-docs/".cyan());
+        if brin_docs.exists() {
+            println!("   - {}", ".brin-docs/".cyan());
         }
-        if sus_json.exists() {
-            println!("   - {}", "sus.json".cyan());
+        if brin_json.exists() {
+            println!("   - {}", "brin.json".cyan());
         }
         if has_agents_md_section {
-            println!("   - {}", "AGENTS.md (sus section only)".cyan());
+            println!("   - {}", "AGENTS.md (brin section only)".cyan());
         }
     }
 
@@ -47,7 +47,7 @@ pub async fn run(yes: bool, all: bool) -> Result<()> {
     if !yes {
         println!();
         let confirm = Confirm::new()
-            .with_prompt("   Remove sus?")
+            .with_prompt("   Remove brin?")
             .default(false)
             .interact()?;
 
@@ -60,17 +60,17 @@ pub async fn run(yes: bool, all: bool) -> Result<()> {
 
     // Remove project-level files if --all flag
     if all {
-        if sus_docs.exists() {
-            std::fs::remove_dir_all(sus_docs)?;
-            println!("   {} Removed .sus-docs/", "✓".green());
+        if brin_docs.exists() {
+            std::fs::remove_dir_all(brin_docs)?;
+            println!("   {} Removed .brin-docs/", "✓".green());
         }
-        if sus_json.exists() {
-            std::fs::remove_file(sus_json)?;
-            println!("   {} Removed sus.json", "✓".green());
+        if brin_json.exists() {
+            std::fs::remove_file(brin_json)?;
+            println!("   {} Removed brin.json", "✓".green());
         }
         if has_agents_md_section {
             agents_md::remove_agents_md_index()?;
-            println!("   {} Removed sus section from AGENTS.md", "✓".green());
+            println!("   {} Removed brin section from AGENTS.md", "✓".green());
         }
     }
 
@@ -90,7 +90,7 @@ pub async fn run(yes: bool, all: bool) -> Result<()> {
         // For now, we'll try direct deletion which works in some cases
         if let Err(_) = std::fs::remove_file(&exe_path) {
             // If direct deletion fails, create a batch script to delete after exit
-            let batch_path = std::env::temp_dir().join("sus_uninstall.bat");
+            let batch_path = std::env::temp_dir().join("brin_uninstall.bat");
             let batch_content = format!(
                 "@echo off\n\
                  :loop\n\
@@ -108,13 +108,13 @@ pub async fn run(yes: bool, all: bool) -> Result<()> {
     }
 
     println!();
-    println!("   {} sus has been uninstalled.", "✓".green());
+    println!("   {} brin has been uninstalled.", "✓".green());
     println!();
 
     // Suggest cleanup if project files exist but --all wasn't used
     if !all && has_project_files {
         println!(
-            "   {} Project files (.sus-docs/, sus.json) were not removed.",
+            "   {} Project files (.brin-docs/, brin.json) were not removed.",
             "note:".yellow()
         );
         println!("   Run with {} to remove them too.", "--all".cyan());
