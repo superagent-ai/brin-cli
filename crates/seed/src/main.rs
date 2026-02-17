@@ -1,4 +1,4 @@
-//! Seed script to populate the scan queue with packages from npm or PyPI
+//! Seed script to populate the scan queue with packages from npm, PyPI, or skills
 
 use anyhow::Result;
 use clap::Parser;
@@ -18,7 +18,7 @@ const PYPI_TOP_PACKAGES_URL: &str =
 #[derive(Parser)]
 #[command(
     name = "seed",
-    about = "Seed the scan queue with packages from npm or PyPI"
+    about = "Seed the scan queue with packages from npm, PyPI, or skills"
 )]
 struct Args {
     /// Number of top packages to fetch by download count
@@ -29,9 +29,13 @@ struct Args {
     #[arg(short, long, default_value = "0")]
     offset: usize,
 
-    /// Registry to seed packages from (npm or pypi)
+    /// Registry to seed packages from (npm, pypi, or skills)
     #[arg(short, long, default_value = "npm")]
     registry: String,
+
+    /// Path to a CSV file for skills seeding (required when --registry skills)
+    #[arg(long)]
+    csv: Option<String>,
 
     /// Include AI/agent ecosystem packages
     #[arg(long)]
@@ -204,6 +208,7 @@ async fn main() -> Result<()> {
     // Parse registry
     let registry = match args.registry.to_lowercase().as_str() {
         "pypi" | "python" => Registry::Pypi,
+        "skills" => Registry::Skills,
         _ => Registry::Npm,
     };
 
@@ -270,7 +275,24 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Registry::Crates | Registry::Skills => {
+        Registry::Skills => {
+            let csv_path = args.csv.as_deref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Skills seeding requires --csv <path> pointing to a skills leaderboard CSV"
+                )
+            })?;
+            println!("   (reading skills from {})", csv_path);
+            match fetch_skills_from_csv(csv_path, args.count, args.offset) {
+                Ok(top_skills) => {
+                    println!("   Found {} skills", top_skills.len());
+                    packages.extend(top_skills);
+                }
+                Err(e) => {
+                    println!("   Warning: Failed to read skills CSV: {}", e);
+                }
+            }
+        }
+        Registry::Crates => {
             println!("   Warning: {} seeding not yet implemented", registry_name);
         }
     }
@@ -491,6 +513,36 @@ async fn fetch_top_pypi_packages(
         .collect();
 
     Ok(top_packages)
+}
+
+/// Load skill identifiers from a CSV file (skills.sh leaderboard format)
+///
+/// Expected CSV format: rank,name,source,installs
+/// Constructs skill identifiers as {source}/{name} (e.g. vercel-labs/skills/find-skills)
+fn fetch_skills_from_csv(path: &str, count: usize, offset: usize) -> Result<Vec<String>> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("Failed to read CSV file '{}': {}", path, e))?;
+
+    let skills: Vec<String> = content
+        .lines()
+        .skip(1) // skip header row
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.splitn(4, ',').collect();
+            if fields.len() >= 3 {
+                let name = fields[1].trim();
+                let source = fields[2].trim();
+                if !name.is_empty() && !source.is_empty() {
+                    return Some(format!("{}/{}", source, name));
+                }
+            }
+            None
+        })
+        .skip(offset)
+        .take(count)
+        .collect();
+
+    Ok(skills)
 }
 
 /// Fetch packages with known CVEs from OSV
