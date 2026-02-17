@@ -6,7 +6,7 @@ mod skill_generator;
 
 use anyhow::Result;
 use axum::{routing::get, Json, Router};
-use common::{Database, ScanQueue};
+use common::{Database, Registry, ScanJob, ScanPriority, ScanQueue};
 use scanner::{AgenticScanner, PackageScanner};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -56,8 +56,9 @@ async fn main() -> Result<()> {
     tracing::info!("Worker started, waiting for jobs...");
 
     // Spawn the worker loop in the background
+    let db_for_worker = db.clone();
     tokio::spawn(async move {
-        worker_loop(queue, scanner).await;
+        worker_loop(queue, scanner, db_for_worker).await;
     });
 
     // Start health check server (required for Cloud Run)
@@ -78,7 +79,7 @@ async fn health_check() -> Json<serde_json::Value> {
     Json(serde_json::json!({"status": "ok"}))
 }
 
-async fn worker_loop(queue: ScanQueue, scanner: PackageScanner) {
+async fn worker_loop(queue: ScanQueue, scanner: PackageScanner, db: Database) {
     tracing::info!("Worker loop starting...");
     loop {
         tracing::debug!("Polling queue for jobs...");
@@ -118,6 +119,56 @@ async fn worker_loop(queue: ScanQueue, scanner: PackageScanner) {
                             duration_ms = start.elapsed().as_millis(),
                             "Scan completed"
                         );
+
+                        // Queue scans for referenced skills (nested dependencies, depth-1 only)
+                        if !result.referenced_skills.is_empty() {
+                            for skill_id in &result.referenced_skills {
+                                // Skip if already scanned (prevents infinite recursion)
+                                match db.package_exists(skill_id, Some(Registry::Skills)).await {
+                                    Ok(true) => {
+                                        tracing::debug!(
+                                            referenced_skill = %skill_id,
+                                            "Referenced skill already scanned, skipping"
+                                        );
+                                        continue;
+                                    }
+                                    Ok(false) => {}
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            referenced_skill = %skill_id,
+                                            error = %e,
+                                            "Failed to check if referenced skill exists, skipping"
+                                        );
+                                        continue;
+                                    }
+                                }
+
+                                let mut nested_job = ScanJob::with_registry(
+                                    skill_id.clone(),
+                                    None,
+                                    Registry::Skills,
+                                    ScanPriority::Medium,
+                                );
+                                nested_job.requested_by = Some("chain-loading-scan".to_string());
+
+                                match queue.push(nested_job).await {
+                                    Ok(()) => {
+                                        tracing::info!(
+                                            parent = %job.package,
+                                            referenced_skill = %skill_id,
+                                            "Queued nested skill scan"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            referenced_skill = %skill_id,
+                                            error = %e,
+                                            "Failed to queue nested skill scan"
+                                        );
+                                    }
+                                }
+                            }
+                        }
 
                         // Clean up tarball file after successful scan
                         if let Some(tarball_path) = &job.tarball_path {

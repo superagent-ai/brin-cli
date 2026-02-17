@@ -44,8 +44,21 @@ impl CapabilityExtractor {
         Self
     }
 
+    /// Check if the extracted package is an Agent Skill
+    fn is_skill(extracted: &ExtractedPackage) -> bool {
+        extracted
+            .source_files
+            .iter()
+            .any(|f| f.path == "SKILL.md" || f.path.ends_with("/SKILL.md"))
+    }
+
     /// Extract capabilities from a package (unified method)
     pub fn extract(&self, extracted: &ExtractedPackage) -> Result<PackageCapabilities> {
+        // Use frontmatter-based extraction for skills
+        if Self::is_skill(extracted) {
+            return self.extract_from_skill(extracted);
+        }
+
         let mut caps = PackageCapabilities::default();
 
         // Check for native modules
@@ -113,6 +126,235 @@ impl CapabilityExtractor {
         caps.native.native_modules.dedup();
 
         Ok(caps)
+    }
+
+    /// Extract capabilities from a SKILL.md frontmatter permissions block
+    fn extract_from_skill(&self, extracted: &ExtractedPackage) -> Result<PackageCapabilities> {
+        let mut caps = PackageCapabilities::default();
+
+        // Find the SKILL.md content
+        let skill_md = extracted
+            .source_files
+            .iter()
+            .find(|f| f.path == "SKILL.md" || f.path.ends_with("/SKILL.md"))
+            .map(|f| f.content.as_str())
+            .unwrap_or("");
+
+        // Parse YAML frontmatter for permissions block
+        if let Some(stripped) = skill_md.strip_prefix("---") {
+            if let Some(end) = stripped.find("---") {
+                let frontmatter = &stripped[..end];
+                self.parse_skill_frontmatter_permissions(frontmatter, &mut caps);
+            }
+        }
+
+        // Also scan the skill body text for capability indicators
+        // (instructions that tell agents to perform actions)
+        self.detect_skill_instruction_capabilities(skill_md, &mut caps);
+
+        // Scan any accompanying scripts
+        for file in &extracted.source_files {
+            if file.path != "SKILL.md" && !file.path.ends_with("/SKILL.md") {
+                match file.language {
+                    Language::JavaScript | Language::TypeScript => {
+                        self.analyze_source(&file.content, &mut caps);
+                    }
+                    Language::Python => {
+                        self.analyze_python_source(&file.content, &mut caps);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Deduplicate
+        caps.network.domains.sort();
+        caps.network.domains.dedup();
+        caps.network.protocols.sort();
+        caps.network.protocols.dedup();
+        caps.process.commands.sort();
+        caps.process.commands.dedup();
+        caps.environment.accessed_vars.sort();
+        caps.environment.accessed_vars.dedup();
+
+        Ok(caps)
+    }
+
+    /// Parse permissions from SKILL.md frontmatter YAML
+    fn parse_skill_frontmatter_permissions(
+        &self,
+        frontmatter: &str,
+        caps: &mut PackageCapabilities,
+    ) {
+        let mut in_permissions = false;
+        let mut current_section = "";
+
+        for line in frontmatter.lines() {
+            let trimmed = line.trim();
+
+            // Detect permissions block
+            if trimmed == "permissions:" {
+                in_permissions = true;
+                continue;
+            }
+
+            if !in_permissions {
+                continue;
+            }
+
+            // End of permissions block (non-indented line)
+            if !line.starts_with(' ') && !line.starts_with('\t') && !trimmed.is_empty() {
+                break;
+            }
+
+            // Detect sub-sections
+            if trimmed.starts_with("network:") {
+                current_section = "network";
+                caps.network.makes_requests = true;
+                continue;
+            }
+            if trimmed.starts_with("filesystem:") {
+                current_section = "filesystem";
+                continue;
+            }
+            if trimmed.starts_with("process:") {
+                current_section = "process";
+                if trimmed.contains("true") {
+                    caps.process.spawns_children = true;
+                }
+                continue;
+            }
+            if trimmed.starts_with("environment:") {
+                current_section = "environment";
+                continue;
+            }
+            if trimmed.starts_with("native:") {
+                if trimmed.contains("true") {
+                    caps.native.has_native = true;
+                }
+                continue;
+            }
+
+            // Parse list items within sections
+            if let Some(val) = trimmed.strip_prefix("- ") {
+                let val = val.trim().trim_matches('"').trim_matches('\'');
+                match current_section {
+                    "network" => {
+                        if val != "*" {
+                            caps.network.domains.push(val.to_string());
+                        }
+                    }
+                    "environment" => {
+                        caps.environment.accessed_vars.push(val.to_string());
+                    }
+                    "filesystem" => {
+                        // Detect path/mode entries
+                        if val.starts_with("path:") {
+                            let path = val
+                                .strip_prefix("path:")
+                                .unwrap_or("")
+                                .trim()
+                                .trim_matches('"');
+                            caps.filesystem.reads = true;
+                            caps.filesystem.paths.push(PathPermission {
+                                path: path.to_string(),
+                                mode: "r".to_string(),
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // Handle mode: inside filesystem entries
+            if current_section == "filesystem" {
+                if let Some(mode_val) = trimmed.strip_prefix("mode:") {
+                    let mode = mode_val.trim().trim_matches('"').trim_matches('\'');
+                    if mode.contains('w') {
+                        caps.filesystem.writes = true;
+                    }
+                    if mode.contains('r') {
+                        caps.filesystem.reads = true;
+                    }
+                    // Update the last path entry's mode
+                    if let Some(last) = caps.filesystem.paths.last_mut() {
+                        last.mode = mode.to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Detect capabilities from skill instruction text (natural language)
+    fn detect_skill_instruction_capabilities(&self, content: &str, caps: &mut PackageCapabilities) {
+        let content_lower = content.to_lowercase();
+
+        // Network indicators in instructions
+        let network_patterns = [
+            "make a request to",
+            "fetch from",
+            "call the api",
+            "http request",
+            "curl ",
+            "wget ",
+            "download from",
+            "upload to",
+        ];
+        for pattern in network_patterns {
+            if content_lower.contains(pattern) {
+                caps.network.makes_requests = true;
+                break;
+            }
+        }
+
+        // Filesystem indicators
+        let fs_read_patterns = [
+            "read the file",
+            "read from",
+            "open the file",
+            "load the file",
+            "parse the file",
+        ];
+        for pattern in fs_read_patterns {
+            if content_lower.contains(pattern) {
+                caps.filesystem.reads = true;
+                break;
+            }
+        }
+
+        let fs_write_patterns = [
+            "write to",
+            "create a file",
+            "save the file",
+            "modify the file",
+            "update the file",
+            "write the file",
+        ];
+        for pattern in fs_write_patterns {
+            if content_lower.contains(pattern) {
+                caps.filesystem.writes = true;
+                break;
+            }
+        }
+
+        // Process spawning indicators
+        let process_patterns = [
+            "run the command",
+            "execute the command",
+            "run the script",
+            "shell command",
+            "bash command",
+            "terminal command",
+        ];
+        for pattern in process_patterns {
+            if content_lower.contains(pattern) {
+                caps.process.spawns_children = true;
+                break;
+            }
+        }
+
+        // Extract URLs from the content for domain detection
+        self.extract_domains(content, &mut caps.network);
     }
 
     /// Analyze Python source code for capabilities

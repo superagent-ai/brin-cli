@@ -25,8 +25,8 @@ RUN cargo build --release --package worker
 # Runtime stage
 FROM alpine:3.20
 
-# Install ca-certificates, curl, bash, and C++ runtime libs (needed by OpenCode)
-RUN apk add --no-cache ca-certificates curl bash libstdc++ libgcc
+# Install ca-certificates, curl, bash, C++ runtime libs (needed by OpenCode), and ripgrep (for OpenCode file indexing)
+RUN apk add --no-cache ca-certificates curl bash libstdc++ libgcc ripgrep
 
 WORKDIR /app
 
@@ -39,7 +39,8 @@ RUN adduser -D -u 1000 brin
 # Install OpenCode as brin user (installs to ~/.opencode/bin/)
 USER brin
 RUN curl -fsSL https://opencode.ai/install | bash && \
-    /home/brin/.opencode/bin/opencode upgrade
+    /home/brin/.opencode/bin/opencode upgrade && \
+    rm -f /home/brin/.opencode/package.json /home/brin/.config/opencode/package.json
 
 # Explicitly set HOME and PATH for Cloud Run
 ENV HOME="/home/brin"

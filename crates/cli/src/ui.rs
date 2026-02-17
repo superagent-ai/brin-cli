@@ -1,7 +1,7 @@
 //! Terminal UI utilities
 
 use colored::Colorize;
-use common::{PackageResponse, RiskLevel};
+use common::{PackageResponse, Registry, RiskLevel};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::time::Duration;
 
@@ -38,10 +38,18 @@ fn format_downloads(downloads: u64) -> String {
 
 /// Print a package risk assessment in tree format (original README style)
 pub fn print_risk(assessment: &PackageResponse) {
-    match assessment.risk_level {
-        RiskLevel::Clean => print_clean_assessment(assessment),
-        RiskLevel::Warning => print_warning_assessment(assessment),
-        RiskLevel::Critical => print_critical_assessment(assessment),
+    if assessment.registry == Registry::Skills {
+        match assessment.risk_level {
+            RiskLevel::Clean => print_clean_skill(assessment),
+            RiskLevel::Warning => print_warning_skill(assessment),
+            RiskLevel::Critical => print_critical_skill(assessment),
+        }
+    } else {
+        match assessment.risk_level {
+            RiskLevel::Clean => print_clean_assessment(assessment),
+            RiskLevel::Warning => print_warning_assessment(assessment),
+            RiskLevel::Critical => print_critical_assessment(assessment),
+        }
     }
 }
 
@@ -203,6 +211,10 @@ fn print_critical_assessment(assessment: &PackageResponse) {
                 common::ThreatType::CryptoMiner => "possible crypto mining code",
                 common::ThreatType::DataExfiltration => "possible data exfiltration patterns",
                 common::ThreatType::SocialEngineering => "possible social engineering indicators",
+                // Skills
+                common::ThreatType::SkillChainLoading => {
+                    "detected chain-loading of external skills or packages"
+                }
                 // Legacy
                 common::ThreatType::InstallScriptInjection => "suspicious install script",
                 common::ThreatType::MaliciousCode => "suspicious code patterns",
@@ -254,6 +266,131 @@ fn print_critical_assessment(assessment: &PackageResponse) {
             };
             println!("   {} {}", prefix, reason.red());
         }
+    }
+}
+
+// ── Skill-specific output ───────────────────────────────────────────────
+
+/// Print assessment for clean skills
+fn print_clean_skill(assessment: &PackageResponse) {
+    println!("{}", "✅ all clear".green().bold());
+    println!("   ├─ repo: {}", assessment.name);
+
+    if let Some(score) = assessment.trust_score {
+        println!("   ├─ trust: {}/100", score);
+    }
+
+    println!("   └─ threats: {}", "none detected".green());
+}
+
+/// Print assessment for warning skills
+fn print_warning_skill(assessment: &PackageResponse) {
+    println!("{}", "⚠️  heads up".yellow().bold());
+    println!("   ├─ repo: {}", assessment.name);
+
+    if let Some(score) = assessment.trust_score {
+        println!("   ├─ trust: {}/100", score);
+    }
+
+    // Agentic threats
+    let total_items = assessment.agentic_threats.len();
+    for (i, threat) in assessment.agentic_threats.iter().enumerate() {
+        let prefix = if i == total_items - 1 {
+            "└─"
+        } else {
+            "├─"
+        };
+        let confidence = (threat.confidence * 100.0) as u8;
+        let desc = skill_threat_description(threat.threat_type);
+        println!(
+            "   {} {}: {}% confidence",
+            prefix,
+            desc.yellow(),
+            confidence
+        );
+        if let Some(snippet) = &threat.snippet {
+            let short = if snippet.len() > 60 {
+                format!("{}...", &snippet[..57])
+            } else {
+                snippet.clone()
+            };
+            println!(
+                "   {}  {}",
+                if i == total_items - 1 { "  " } else { "│ " },
+                short.dimmed()
+            );
+        }
+    }
+
+    if assessment.agentic_threats.is_empty() {
+        for (i, reason) in assessment.risk_reasons.iter().enumerate() {
+            let prefix = if i == assessment.risk_reasons.len() - 1 {
+                "└─"
+            } else {
+                "├─"
+            };
+            println!("   {} {}", prefix, reason.yellow());
+        }
+    }
+}
+
+/// Print assessment for critical skills
+fn print_critical_skill(assessment: &PackageResponse) {
+    println!("{}", "🚨 high risk".red().bold());
+    println!("   ├─ repo: {}", assessment.name);
+
+    let mut items: Vec<String> = Vec::new();
+
+    for threat in &assessment.agentic_threats {
+        if threat.confidence > 0.5 {
+            let desc = skill_threat_description(threat.threat_type);
+            let mut line = format!("{}: {}", "flagged".red(), desc);
+            if let Some(snippet) = &threat.snippet {
+                let short = if snippet.len() > 50 {
+                    format!("{}...", &snippet[..47])
+                } else {
+                    snippet.clone()
+                };
+                line.push_str(&format!(" ({})", short.dimmed()));
+            }
+            items.push(line);
+        }
+    }
+
+    // Risk reasons (only if not already covered by threats above)
+    if items.is_empty() {
+        for reason in &assessment.risk_reasons {
+            items.push(reason.clone());
+        }
+    }
+
+    for (i, item) in items.iter().enumerate() {
+        let prefix = if i == items.len() - 1 {
+            "└─"
+        } else {
+            "├─"
+        };
+        println!("   {} {}", prefix, item);
+    }
+
+    if items.is_empty() {
+        println!("   └─ {}", "flagged for review".red());
+    }
+}
+
+/// Skill-specific threat type descriptions (cautious language)
+fn skill_threat_description(threat_type: common::ThreatType) -> &'static str {
+    match threat_type {
+        common::ThreatType::SkillChainLoading => "installs additional skills or packages",
+        common::ThreatType::PromptInjection => "patterns consistent with prompt injection",
+        common::ThreatType::InstructionOverride => "instructions exceed declared permissions",
+        common::ThreatType::SocialEngineering => "patterns consistent with social engineering",
+        common::ThreatType::DataExfiltration => "patterns consistent with data exfiltration",
+        common::ThreatType::CommandInjection => "executes shell commands",
+        common::ThreatType::InsecureToolUsage => "overly broad tool permissions",
+        common::ThreatType::ObfuscatedCode => "obfuscated content detected",
+        common::ThreatType::Backdoor => "patterns consistent with hidden functionality",
+        _ => "suspicious patterns detected",
     }
 }
 

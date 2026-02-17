@@ -55,6 +55,11 @@ services:
       DATABASE_URL: postgres://brin:brin@db:5432/brin
       REDIS_URL: redis://redis:6379
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      FIREWORKS_BASE_URL: ${FIREWORKS_BASE_URL:-}
+      AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
       RUST_LOG: brin_worker=debug
     depends_on:
       db:
