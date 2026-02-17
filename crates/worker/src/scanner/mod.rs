@@ -11,7 +11,7 @@ use capabilities::CapabilityExtractor;
 use common::{
     db::{NewAgenticThreat, NewPackage, NewPackageCve},
     AgenticThreatSummary, CveSummary, Database, NpmPackageMetadata, PackageCapabilities,
-    PypiPackageMetadata, Registry, RiskLevel, UsageDocs, VerificationStatus,
+    PypiPackageMetadata, Registry, RiskLevel, ThreatType, UsageDocs, VerificationStatus,
 };
 use cve::CveScanner;
 use std::sync::Arc;
@@ -329,6 +329,79 @@ pub struct ScanResult {
     pub agentic_threats: Vec<AgenticThreatSummary>,
     pub capabilities: PackageCapabilities,
     pub skill_md: String,
+    /// Skill identifiers referenced via chain-loading (for nested dependency scanning)
+    pub referenced_skills: Vec<String>,
+}
+
+/// Extract referenced skill identifiers from SKILL.md content
+/// Parses patterns like `npx skills add owner/repo --skill name`
+fn extract_referenced_skills(extracted: &ExtractedPackage) -> Vec<String> {
+    let mut skills = Vec::new();
+
+    for file in &extracted.source_files {
+        if file.path != "SKILL.md" && !file.path.ends_with("/SKILL.md") {
+            continue;
+        }
+
+        for line in file.content.lines() {
+            let line = line.trim();
+            // Match: npx skills add <owner/repo> [--skill <name>]
+            if let Some(rest) = line
+                .to_lowercase()
+                .find("npx skills add")
+                .and_then(|idx| line.get(idx + "npx skills add".len()..))
+            {
+                let rest = rest.trim();
+                // Skip URL-style arguments (https://...)
+                if rest.starts_with("http") {
+                    // Try to extract owner/repo from URL
+                    if let Some(gh_path) = rest
+                        .strip_prefix("https://github.com/")
+                        .or_else(|| rest.strip_prefix("http://github.com/"))
+                    {
+                        let parts: Vec<&str> = gh_path.splitn(3, '/').collect();
+                        if parts.len() >= 2 {
+                            let mut skill_id =
+                                format!("{}/{}", parts[0], parts[1].trim_end_matches('`'));
+                            // Check for --skill flag
+                            if let Some(skill_idx) = line.find("--skill") {
+                                if let Some(name) = line[skill_idx + "--skill".len()..]
+                                    .split_whitespace()
+                                    .next()
+                                {
+                                    let name = name.trim_end_matches('`');
+                                    skill_id = format!("{}/{}", skill_id, name);
+                                }
+                            }
+                            skills.push(skill_id);
+                        }
+                    }
+                } else {
+                    // Direct: npx skills add owner/repo [--skill name]
+                    if let Some(id) = rest.split_whitespace().next() {
+                        let id = id.trim_end_matches('`');
+                        if id.contains('/') {
+                            let mut skill_id = id.to_string();
+                            // Check for --skill flag
+                            if let Some(skill_idx) = rest.find("--skill") {
+                                if let Some(name) = rest[skill_idx + "--skill".len()..]
+                                    .split_whitespace()
+                                    .next()
+                                {
+                                    let name = name.trim_end_matches('`');
+                                    skill_id = format!("{}/{}", skill_id, name);
+                                }
+                            }
+                            skills.push(skill_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    skills.dedup();
+    skills
 }
 
 /// Main package scanner
@@ -436,8 +509,25 @@ impl PackageScanner {
                 extract_pypi_name_version(&extracted.manifest)
             }
             Registry::Crates => {
-                // TODO: Implement for Cargo.toml
                 anyhow::bail!("Crates.io registry not yet supported")
+            }
+            Registry::Skills => {
+                // Skills use the identifier as name, commit SHA as version
+                let name = extracted
+                    .manifest
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown-skill")
+                    .to_string();
+
+                let version = extracted
+                    .manifest
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("0.0.0")
+                    .to_string();
+
+                Ok((name, version))
             }
         }
     }
@@ -453,12 +543,12 @@ impl PackageScanner {
         let registry = adapter.registry();
         let version = &metadata.version;
 
-        // Run all analyses in parallel
-        let (cves, agentic_threats, capabilities, usage_docs) = tokio::join!(
+        // Run CVE scan and capability extraction in parallel with agentic scan
+        // NOTE: OpenCode invocations must be sequential — they share a SQLite database
+        // that doesn't support concurrent writers, causing "database is locked" errors.
+        let (cves, capabilities) = tokio::join!(
             self.scan_cves_with_adapter(&*adapter, name, version),
-            self.agentic_scanner.scan(&extracted),
             async { self.capability_extractor.extract(&extracted) },
-            self.agentic_scanner.generate_usage_docs(&extracted, name)
         );
 
         let cves = cves.unwrap_or_else(|e| {
@@ -466,10 +556,28 @@ impl PackageScanner {
             vec![]
         });
 
-        let agentic_threats = agentic_threats.unwrap_or_else(|e| {
-            tracing::warn!("Agentic scan failed: {}", e);
-            vec![]
-        });
+        // Run OpenCode-based scans sequentially to avoid SQLite lock contention
+        let agentic_threats = self
+            .agentic_scanner
+            .scan(&extracted)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!("Agentic scan failed: {}", e);
+                vec![]
+            });
+
+        // Skills already have SKILL.md as their documentation — skip usage docs generation
+        let usage_docs = if registry == Registry::Skills {
+            UsageDocs::default()
+        } else {
+            self.agentic_scanner
+                .generate_usage_docs(&extracted, name)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!("Usage docs generation failed: {}", e);
+                    UsageDocs::default()
+                })
+        };
 
         // Verify threats if any were detected
         let agentic_threats = if !agentic_threats.is_empty() {
@@ -498,26 +606,40 @@ impl PackageScanner {
 
         let capabilities = capabilities.unwrap_or_default();
 
-        let usage_docs = usage_docs.unwrap_or_else(|e| {
-            tracing::warn!("Usage docs generation failed: {}", e);
-            UsageDocs::default()
-        });
-
         // Calculate trust score using adapter
         let trust_score = adapter.compute_trust_score(metadata);
 
         // Determine risk level (based on CVEs and verified agentic threats only)
-        let (risk_level, risk_reasons) = calculate_risk(&cves, &agentic_threats);
+        let (risk_level, mut risk_reasons) = calculate_risk(&cves, &agentic_threats);
 
-        // Generate SKILL.md
-        let skill_md = generate_skill_md(
-            name,
-            version,
-            &capabilities,
-            &risk_level,
-            &risk_reasons,
-            &usage_docs,
-        );
+        // Generate or preserve SKILL.md
+        // For skills registry, use the original SKILL.md content instead of generating one
+        let skill_md = if registry == Registry::Skills {
+            extracted
+                .source_files
+                .iter()
+                .find(|f| f.path == "SKILL.md" || f.path.ends_with("/SKILL.md"))
+                .map(|f| f.content.clone())
+                .unwrap_or_else(|| {
+                    generate_skill_md(
+                        name,
+                        version,
+                        &capabilities,
+                        &risk_level,
+                        &risk_reasons,
+                        &usage_docs,
+                    )
+                })
+        } else {
+            generate_skill_md(
+                name,
+                version,
+                &capabilities,
+                &risk_level,
+                &risk_reasons,
+                &usage_docs,
+            )
+        };
 
         // Fetch download stats
         let weekly_downloads = adapter.fetch_downloads(name).await.unwrap_or(None);
@@ -573,8 +695,29 @@ impl PackageScanner {
                     confidence: threat.confidence,
                     location: threat.location.clone(),
                     snippet: threat.snippet.clone(),
+                    verification_status: threat.verification_status,
                 })
                 .await?;
+        }
+
+        // For skills with chain-loading, extract referenced skill identifiers
+        let mut referenced_skills = Vec::new();
+        if registry == Registry::Skills
+            && agentic_threats
+                .iter()
+                .any(|t| t.threat_type == ThreatType::SkillChainLoading)
+        {
+            referenced_skills = extract_referenced_skills(&extracted);
+            if !referenced_skills.is_empty() {
+                tracing::info!(
+                    "Skill chain-loads {} other skill(s): {:?}",
+                    referenced_skills.len(),
+                    referenced_skills
+                );
+                for skill_ref in &referenced_skills {
+                    risk_reasons.push(format!("chain-loads: {}", skill_ref));
+                }
+            }
         }
 
         Ok(ScanResult {
@@ -587,6 +730,7 @@ impl PackageScanner {
             agentic_threats,
             capabilities,
             skill_md,
+            referenced_skills,
         })
     }
 

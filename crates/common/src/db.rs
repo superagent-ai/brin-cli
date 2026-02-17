@@ -214,8 +214,8 @@ impl Database {
     pub async fn insert_threat(&self, threat: &NewAgenticThreat) -> Result<i32> {
         let id = sqlx::query_scalar::<_, i32>(
             r#"
-            INSERT INTO agentic_threats (package_id, threat_type, confidence, location, snippet)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO agentic_threats (package_id, threat_type, confidence, location, snippet, verification_status)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id
             "#,
         )
@@ -224,6 +224,7 @@ impl Database {
         .bind(threat.confidence)
         .bind(&threat.location)
         .bind(&threat.snippet)
+        .bind(threat.verification_status)
         .fetch_one(&self.pool)
         .await?;
 
@@ -630,4 +631,5 @@ pub struct NewAgenticThreat {
     pub confidence: f32,
     pub location: Option<String>,
     pub snippet: Option<String>,
+    pub verification_status: VerificationStatus,
 }

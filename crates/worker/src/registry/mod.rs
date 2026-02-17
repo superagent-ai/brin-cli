@@ -5,10 +5,12 @@
 
 mod npm;
 mod pypi;
+mod skills;
 mod types;
 
 pub use npm::NpmAdapter;
 pub use pypi::PypiAdapter;
+pub use skills::SkillsAdapter;
 pub use types::{ExtractedPackage, Language, Maintainer, PackageMetadata, SourceFile};
 
 use anyhow::Result;
@@ -61,6 +63,7 @@ impl AdapterRegistry {
         let mut adapters: HashMap<Registry, Arc<dyn RegistryAdapter>> = HashMap::new();
         adapters.insert(Registry::Npm, Arc::new(NpmAdapter::new()));
         adapters.insert(Registry::Pypi, Arc::new(PypiAdapter::new()));
+        adapters.insert(Registry::Skills, Arc::new(SkillsAdapter::new()));
         Self { adapters }
     }
 

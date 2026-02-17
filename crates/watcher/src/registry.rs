@@ -33,8 +33,8 @@ impl RegistryClient {
         match registry {
             Registry::Npm => self.get_npm_latest(name).await,
             Registry::Pypi => self.get_pypi_latest(name).await,
-            Registry::Crates => {
-                // Crates.io not yet supported
+            Registry::Crates | Registry::Skills => {
+                // Not yet supported for version watching
                 Ok(None)
             }
         }

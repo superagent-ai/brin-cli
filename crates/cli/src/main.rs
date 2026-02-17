@@ -94,6 +94,35 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+
+    /// Manage Agent Skills (scan and install skills from skills.sh)
+    Skills {
+        #[command(subcommand)]
+        action: SkillsAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum SkillsAction {
+    /// Add a skill (with safety checks)
+    Add {
+        /// Skill identifier (owner/repo or owner/repo/path)
+        skill: String,
+
+        /// Skip all safety checks (dangerous!)
+        #[arg(long)]
+        yolo: bool,
+
+        /// Block skills with any warnings
+        #[arg(long)]
+        strict: bool,
+    },
+
+    /// Check a skill without installing
+    Check {
+        /// Skill identifier (owner/repo or owner/repo/path)
+        skill: String,
+    },
 }
 
 #[tokio::main]
@@ -134,5 +163,15 @@ async fn main() -> anyhow::Result<()> {
         Commands::Uninstall { yes, all } => commands::uninstall::run(yes, all).await,
 
         Commands::Upgrade { force } => commands::upgrade::run(force).await,
+
+        Commands::Skills { action } => match action {
+            SkillsAction::Add {
+                skill,
+                yolo,
+                strict,
+            } => commands::skills::run_add(&client, &skill, yolo, strict).await,
+
+            SkillsAction::Check { skill } => commands::skills::run_check(&client, &skill).await,
+        },
     }
 }

@@ -78,6 +78,7 @@ pub enum ThreatType {
     DependencyConfusion,
     Typosquatting,
     ObfuscatedCode,
+    SkillChainLoading,
 
     // Other
     PathTraversal,
@@ -112,6 +113,7 @@ pub enum Registry {
     Npm,
     Pypi,
     Crates,
+    Skills,
 }
 
 /// Verification status for agentic threats
@@ -132,6 +134,7 @@ impl Registry {
             Registry::Npm => "npm",
             Registry::Pypi => "pypi",
             Registry::Crates => "crates",
+            Registry::Skills => "skills",
         }
     }
 }
@@ -827,6 +830,10 @@ mod tests {
             serde_json::to_string(&Registry::Crates).unwrap(),
             "\"crates\""
         );
+        assert_eq!(
+            serde_json::to_string(&Registry::Skills).unwrap(),
+            "\"skills\""
+        );
 
         assert_eq!(
             serde_json::from_str::<Registry>("\"npm\"").unwrap(),
@@ -840,6 +847,10 @@ mod tests {
             serde_json::from_str::<Registry>("\"crates\"").unwrap(),
             Registry::Crates
         );
+        assert_eq!(
+            serde_json::from_str::<Registry>("\"skills\"").unwrap(),
+            Registry::Skills
+        );
     }
 
     #[test]
@@ -847,7 +858,9 @@ mod tests {
         assert_eq!(Registry::Npm.as_str(), "npm");
         assert_eq!(Registry::Pypi.as_str(), "pypi");
         assert_eq!(Registry::Crates.as_str(), "crates");
+        assert_eq!(Registry::Skills.as_str(), "skills");
         assert_eq!(format!("{}", Registry::Npm), "npm");
+        assert_eq!(format!("{}", Registry::Skills), "skills");
     }
 
     #[test]

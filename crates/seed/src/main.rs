@@ -218,6 +218,7 @@ async fn main() -> Result<()> {
         Registry::Npm => "npm",
         Registry::Pypi => "PyPI",
         Registry::Crates => "crates.io",
+        Registry::Skills => "skills",
     };
 
     println!("🌱 brin database seeder ({})\n", registry_name);
@@ -269,8 +270,8 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Registry::Crates => {
-            println!("   Warning: crates.io seeding not yet implemented");
+        Registry::Crates | Registry::Skills => {
+            println!("   Warning: {} seeding not yet implemented", registry_name);
         }
     }
 
@@ -290,8 +291,8 @@ async fn main() -> Result<()> {
                 }
                 println!("   Added {} AI packages", PYPI_AI_PACKAGES.len());
             }
-            Registry::Crates => {
-                println!("   Warning: crates.io AI packages not yet defined");
+            Registry::Crates | Registry::Skills => {
+                println!("   Warning: {} AI packages not yet defined", registry_name);
             }
         }
     }
@@ -315,6 +316,7 @@ async fn main() -> Result<()> {
             Registry::Npm => "npm",
             Registry::Pypi => "PyPI",
             Registry::Crates => "crates.io",
+            Registry::Skills => "skills",
         };
         match fetch_cve_packages(&client, ecosystem).await {
             Ok(cve_packages) => {
