@@ -3,7 +3,7 @@
 
 use crate::registry::ExtractedPackage;
 use anyhow::{Context, Result};
-use common::{AgenticThreatSummary, ApiDoc, ThreatType, UsageDocs, VerificationStatus};
+use common::{AgenticThreatSummary, ApiDoc, Registry, ThreatType, UsageDocs, VerificationStatus};
 use serde::Deserialize;
 use std::path::Path;
 use std::process::Stdio;
@@ -501,6 +501,7 @@ Rules:
         &self,
         extracted: &ExtractedPackage,
         threats: Vec<AgenticThreatSummary>,
+        registry: Registry,
     ) -> Result<Vec<AgenticThreatSummary>> {
         if threats.is_empty() {
             return Ok(vec![]);
@@ -658,8 +659,15 @@ If no threats verified: {{"threats": [], "summary": "No security concerns confir
         // Parse the JSON output
         let report: OpenCodeThreatReport = self.parse_json_output(&output)?;
 
-        // Convert to AgenticThreatSummary — threats confirmed by the verification
-        // model are marked as Verified so they affect risk level calculation
+        // Convert to AgenticThreatSummary
+        // Skills: Opus confirmation is sufficient, mark as Verified
+        // npm/PyPI: require human review, keep as Pending even after Opus confirms
+        let post_verify_status = if registry == Registry::Skills {
+            VerificationStatus::Verified
+        } else {
+            VerificationStatus::Pending
+        };
+
         let verified_threats: Vec<AgenticThreatSummary> = report
             .threats
             .into_iter()
@@ -668,7 +676,7 @@ If no threats verified: {{"threats": [], "summary": "No security concerns confir
                 confidence: t.confidence.unwrap_or(0.8),
                 location: t.location,
                 snippet: t.snippet,
-                verification_status: VerificationStatus::Verified,
+                verification_status: post_verify_status,
             })
             .collect();
 

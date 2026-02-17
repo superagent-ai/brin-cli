@@ -587,7 +587,7 @@ impl PackageScanner {
             );
             match self
                 .agentic_scanner
-                .verify_threats(&extracted, agentic_threats.clone())
+                .verify_threats(&extracted, agentic_threats.clone(), registry)
                 .await
             {
                 Ok(verified) => verified,
