@@ -53,9 +53,17 @@ struct Args {
     #[arg(long)]
     dry_run: bool,
 
+    /// Skip packages that already exist in the database
+    #[arg(long)]
+    skip_existing: bool,
+
     /// Redis URL (can also use REDIS_URL env var)
     #[arg(long, env = "REDIS_URL")]
     redis_url: String,
+
+    /// Database URL (can also use DATABASE_URL env var). Required when --skip-existing is set.
+    #[arg(long, env = "DATABASE_URL")]
+    database_url: Option<String>,
 }
 
 /// OSV vulnerability response
@@ -352,12 +360,32 @@ async fn main() -> Result<()> {
     }
 
     // Deduplicate and report
-    let packages: Vec<String> = packages.into_iter().collect();
+    let mut packages: Vec<String> = packages.into_iter().collect();
     println!(
         "\n📊 Total unique {} packages to seed: {}",
         registry_name,
         packages.len()
     );
+
+    // Filter out packages already in the database
+    if args.skip_existing {
+        let db_url = args
+            .database_url
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("--skip-existing requires DATABASE_URL to be set"))?;
+        println!("\n🔍 Checking database for existing packages...");
+        let db = common::Database::new(db_url).await?;
+        let existing_names = db.get_package_names_by_registry(registry).await?;
+        let existing_set: HashSet<String> = existing_names.into_iter().collect();
+        let before = packages.len();
+        packages.retain(|p| !existing_set.contains(p));
+        let skipped = before - packages.len();
+        println!(
+            "   Skipped {} already-scanned packages, {} remaining",
+            skipped,
+            packages.len()
+        );
+    }
 
     if args.dry_run {
         println!("\n🔍 Dry run - packages that would be queued:");
