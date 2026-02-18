@@ -10,8 +10,9 @@ use anyhow::Result;
 use capabilities::CapabilityExtractor;
 use common::{
     db::{NewAgenticThreat, NewPackage, NewPackageCve},
-    AgenticThreatSummary, CveSummary, Database, NpmPackageMetadata, PackageCapabilities,
-    PypiPackageMetadata, Registry, RiskLevel, ThreatType, UsageDocs, VerificationStatus,
+    AgenticThreatSummary, CveSummary, Database, InstallScripts, NpmPackageMetadata,
+    PackageCapabilities, PypiPackageMetadata, Registry, RiskLevel, ThreatType, UsageDocs,
+    VerificationStatus,
 };
 use cve::CveScanner;
 use std::sync::Arc;
@@ -404,6 +405,40 @@ fn extract_referenced_skills(extracted: &ExtractedPackage) -> Vec<String> {
     skills
 }
 
+/// Detect lifecycle install scripts from the package manifest.
+fn detect_install_scripts(extracted: &ExtractedPackage, registry: Registry) -> InstallScripts {
+    match registry {
+        Registry::Npm => {
+            let scripts = extracted
+                .manifest
+                .get("scripts")
+                .and_then(|s| s.as_object());
+            match scripts {
+                Some(s) => InstallScripts {
+                    preinstall: s.contains_key("preinstall"),
+                    install: s.contains_key("install"),
+                    postinstall: s.contains_key("postinstall"),
+                    prepare: s.contains_key("prepare"),
+                },
+                None => InstallScripts::default(),
+            }
+        }
+        Registry::Pypi => {
+            let mut scripts = InstallScripts::default();
+            for file in &extracted.source_files {
+                if file.path.ends_with("setup.py") {
+                    let content = &file.content;
+                    if content.contains("cmdclass") || content.contains("build_ext") {
+                        scripts.install = true;
+                    }
+                }
+            }
+            scripts
+        }
+        _ => InstallScripts::default(),
+    }
+}
+
 /// Main package scanner
 pub struct PackageScanner {
     db: Database,
@@ -605,6 +640,7 @@ impl PackageScanner {
         };
 
         let capabilities = capabilities.unwrap_or_default();
+        let install_scripts = detect_install_scripts(&extracted, registry);
 
         // Calculate trust score using adapter
         let trust_score = adapter.compute_trust_score(metadata);
@@ -663,6 +699,7 @@ impl PackageScanner {
                 maintainers: maintainers_json,
                 last_publish: metadata.published_at,
                 capabilities: serde_json::to_value(&capabilities)?,
+                install_scripts: serde_json::to_value(&install_scripts)?,
                 skill_md: Some(skill_md.clone()),
                 scan_version: Some(env!("CARGO_PKG_VERSION").to_string()),
             })

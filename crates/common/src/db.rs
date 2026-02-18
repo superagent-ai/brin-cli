@@ -146,8 +146,8 @@ impl Database {
             r#"
             INSERT INTO packages (name, version, registry, risk_level, risk_reasons, trust_score, 
                 publisher_verified, weekly_downloads, maintainer_count, maintainers, last_publish, 
-                capabilities, skill_md, scan_version)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                capabilities, install_scripts, skill_md, scan_version)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             ON CONFLICT (name, version, registry) DO UPDATE SET
                 risk_level = EXCLUDED.risk_level,
                 risk_reasons = EXCLUDED.risk_reasons,
@@ -158,6 +158,7 @@ impl Database {
                 maintainers = EXCLUDED.maintainers,
                 last_publish = EXCLUDED.last_publish,
                 capabilities = EXCLUDED.capabilities,
+                install_scripts = EXCLUDED.install_scripts,
                 skill_md = EXCLUDED.skill_md,
                 scan_version = EXCLUDED.scan_version,
                 scanned_at = NOW()
@@ -176,6 +177,7 @@ impl Database {
         .bind(&package.maintainers)
         .bind(package.last_publish)
         .bind(&package.capabilities)
+        .bind(&package.install_scripts)
         .bind(&package.skill_md)
         .bind(&package.scan_version)
         .fetch_one(&self.pool)
@@ -329,7 +331,7 @@ impl Database {
             r#"
             SELECT id, name, version, registry, risk_level, risk_reasons, trust_score,
                    publisher_verified, weekly_downloads, maintainer_count,
-                   last_publish, capabilities, skill_md, scanned_at, scan_version
+                   last_publish, capabilities, install_scripts, skill_md, scanned_at, scan_version
             FROM packages
             ORDER BY name, version
             "#,
@@ -608,6 +610,7 @@ pub struct NewPackage {
     pub maintainers: Option<serde_json::Value>,
     pub last_publish: Option<chrono::DateTime<chrono::Utc>>,
     pub capabilities: serde_json::Value,
+    pub install_scripts: serde_json::Value,
     pub skill_md: Option<String>,
     pub scan_version: Option<String>,
 }

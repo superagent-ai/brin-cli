@@ -8,9 +8,9 @@ use axum::{
     Json,
 };
 use common::{
-    AgenticThreatSummary, BulkLookupRequest, CveSummary, InstallScripts, MaintainerInfo,
-    PackageCapabilities, PackageListItem, PackageListResponse, PackageResponse, PaginationParams,
-    PublisherInfo, Registry, ScanJob, ScanPriority, ScanRequest, ScanRequestResponse,
+    AgenticThreatSummary, BulkLookupRequest, CveSummary, MaintainerInfo, PackageCapabilities,
+    PackageListItem, PackageListResponse, PackageResponse, PaginationParams, PublisherInfo,
+    Registry, ScanJob, ScanPriority, ScanRequest, ScanRequestResponse,
 };
 use serde_json::json;
 use std::io::Write;
@@ -168,7 +168,8 @@ pub async fn get_package(
         maintainers,
         maintainer_count: package.maintainer_count.map(|c| c as u32),
         last_publish: package.last_publish,
-        install_scripts: InstallScripts::default(), // TODO: store in DB
+        install_scripts: serde_json::from_value(package.install_scripts.clone())
+            .unwrap_or_default(),
         cves: cves
             .into_iter()
             .map(|c| CveSummary {
@@ -265,7 +266,8 @@ pub async fn get_package_version(
         maintainers,
         maintainer_count: package.maintainer_count.map(|c| c as u32),
         last_publish: package.last_publish,
-        install_scripts: InstallScripts::default(),
+        install_scripts: serde_json::from_value(package.install_scripts.clone())
+            .unwrap_or_default(),
         cves: cves
             .into_iter()
             .map(|c| CveSummary {
@@ -370,7 +372,8 @@ pub async fn bulk_lookup(
             maintainers,
             maintainer_count: package.maintainer_count.map(|c| c as u32),
             last_publish: package.last_publish,
-            install_scripts: InstallScripts::default(),
+            install_scripts: serde_json::from_value(package.install_scripts.clone())
+                .unwrap_or_default(),
             cves: cves
                 .into_iter()
                 .map(|c| CveSummary {

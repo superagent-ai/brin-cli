@@ -160,6 +160,7 @@ pub struct Package {
     pub maintainer_count: Option<i32>,
     pub last_publish: Option<DateTime<Utc>>,
     pub capabilities: serde_json::Value,
+    pub install_scripts: serde_json::Value,
     /// Maintainers list as JSON array
     pub maintainers: Option<serde_json::Value>,
     pub skill_md: Option<String>,
