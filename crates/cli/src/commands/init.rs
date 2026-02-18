@@ -53,6 +53,13 @@ pub async fn run(yes: bool) -> Result<()> {
         agents_md::update_agents_md_index()?;
         println!("  {} updated AGENTS.md with brin docs index", "✓".green());
 
+        // Add package installation instructions to AGENTS.md
+        agents_md::add_install_instructions()?;
+        println!(
+            "  {} added package installation instructions to AGENTS.md",
+            "✓".green()
+        );
+
         println!();
         println!(
             "  {} AGENTS.md docs index enabled. When you run {},",
