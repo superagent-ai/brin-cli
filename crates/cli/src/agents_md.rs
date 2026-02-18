@@ -14,6 +14,9 @@ const BRIN_DOCS_DIR: &str = ".brin-docs";
 const BRIN_MARKER_START: &str = "[brin Docs Index]";
 const BRIN_MARKER_END: &str = "[/brin Docs Index]";
 
+/// Marker to detect package installation instructions in AGENTS.md
+const INSTALL_INSTRUCTIONS_MARKER: &str = "## Package Installation";
+
 /// Convert a package name to a valid filename
 /// - Lowercase only
 /// - Alphanumeric and hyphens only
@@ -270,6 +273,41 @@ fn remove_brin_section(content: &str) -> String {
     }
 }
 
+/// Add package installation instructions to AGENTS.md (idempotent)
+pub fn add_install_instructions() -> Result<()> {
+    add_install_instructions_at_path(Path::new(AGENTS_MD_PATH))
+}
+
+fn add_install_instructions_at_path(agents_path: &Path) -> Result<()> {
+    let instructions = r#"
+## Package Installation
+
+Use `brin` for all package operations:
+- `brin add <pkg>` -- install with security scan
+- `brin remove <pkg>` -- uninstall
+- `brin scan` -- audit all dependencies
+- `brin check <pkg>` -- look up without installing
+
+Do not use npm install, yarn add, pnpm add, or pip install directly.
+"#;
+
+    if agents_path.exists() {
+        let content = fs::read_to_string(agents_path)?;
+        if content.contains(INSTALL_INSTRUCTIONS_MARKER) {
+            // Already present, nothing to do
+            return Ok(());
+        }
+        let new_content = format!("{}{}", content, instructions);
+        fs::write(agents_path, new_content)?;
+    } else {
+        // Create new AGENTS.md with just the instructions
+        let content = format!("# AGENTS.md\n{}", instructions);
+        fs::write(agents_path, content)?;
+    }
+
+    Ok(())
+}
+
 /// Ensure .brin-docs directory exists
 pub fn ensure_docs_dir() -> Result<()> {
     fs::create_dir_all(BRIN_DOCS_DIR)?;
@@ -411,6 +449,49 @@ mod tests {
         let content = fs::read_to_string(&agents_path).unwrap();
         assert!(content.contains("express.md"));
         assert!(!content.contains("old.md"));
+    }
+
+    #[test]
+    fn test_add_install_instructions_to_existing() {
+        let temp_dir = TempDir::new().unwrap();
+        let agents_path = temp_dir.path().join("AGENTS.md");
+
+        fs::write(&agents_path, "# AGENTS.md\n\nSome content\n").unwrap();
+
+        add_install_instructions_at_path(&agents_path).unwrap();
+
+        let content = fs::read_to_string(&agents_path).unwrap();
+        assert!(content.contains("## Package Installation"));
+        assert!(content.contains("brin add <pkg>"));
+        assert!(content.contains("Do not use npm install"));
+    }
+
+    #[test]
+    fn test_add_install_instructions_idempotent() {
+        let temp_dir = TempDir::new().unwrap();
+        let agents_path = temp_dir.path().join("AGENTS.md");
+
+        fs::write(&agents_path, "# AGENTS.md\n\nSome content\n").unwrap();
+
+        add_install_instructions_at_path(&agents_path).unwrap();
+        let content_after_first = fs::read_to_string(&agents_path).unwrap();
+
+        add_install_instructions_at_path(&agents_path).unwrap();
+        let content_after_second = fs::read_to_string(&agents_path).unwrap();
+
+        assert_eq!(content_after_first, content_after_second);
+    }
+
+    #[test]
+    fn test_add_install_instructions_creates_new() {
+        let temp_dir = TempDir::new().unwrap();
+        let agents_path = temp_dir.path().join("AGENTS.md");
+
+        add_install_instructions_at_path(&agents_path).unwrap();
+
+        let content = fs::read_to_string(&agents_path).unwrap();
+        assert!(content.contains("# AGENTS.md"));
+        assert!(content.contains("## Package Installation"));
     }
 
     #[test]
