@@ -9,8 +9,8 @@ use axum::{
 };
 use common::{
     AgenticThreatSummary, BulkLookupRequest, CveSummary, MaintainerInfo, PackageCapabilities,
-    PackageListItem, PackageListResponse, PackageResponse, PaginationParams, PublisherInfo,
-    Registry, ScanJob, ScanPriority, ScanRequest, ScanRequestResponse,
+    PackageListItem, PackageListResponse, PackageResponse, PackageSortBy, PaginationParams,
+    PublisherInfo, Registry, ScanJob, ScanPriority, ScanRequest, ScanRequestResponse,
 };
 use serde_json::json;
 use std::io::Write;
@@ -29,6 +29,17 @@ pub async fn list_packages(
     let limit = params.limit.unwrap_or(50).min(100); // Default 50, max 100
     let offset = params.offset.unwrap_or(0);
 
+    let sort_by = match params.sort_by.as_deref() {
+        None | Some("weekly_downloads") => PackageSortBy::WeeklyDownloads,
+        Some("scanned_at") => PackageSortBy::ScannedAt,
+        Some(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "invalid sort_by value" })),
+            ));
+        }
+    };
+
     let latest = params.latest.unwrap_or(false);
     let registry = params.registry;
     let risk_level = params.risk_level;
@@ -37,23 +48,23 @@ pub async fn list_packages(
         if latest {
             state
                 .db
-                .search_packages_latest(q, limit, offset, registry, risk_level)
+                .search_packages_latest(q, limit, offset, registry, risk_level, sort_by)
                 .await
         } else {
             state
                 .db
-                .search_packages(q, limit, offset, registry, risk_level)
+                .search_packages(q, limit, offset, registry, risk_level, sort_by)
                 .await
         }
     } else if latest {
         state
             .db
-            .get_packages_paginated_latest(limit, offset, registry, risk_level)
+            .get_packages_paginated_latest(limit, offset, registry, risk_level, sort_by)
             .await
     } else {
         state
             .db
-            .get_packages_paginated(limit, offset, registry, risk_level)
+            .get_packages_paginated(limit, offset, registry, risk_level, sort_by)
             .await
     }
     .map_err(|e| {

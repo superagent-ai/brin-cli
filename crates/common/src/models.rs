@@ -432,6 +432,14 @@ pub struct PackageListResponse {
     pub offset: i64,
 }
 
+/// Sort order for package list queries
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PackageSortBy {
+    #[default]
+    WeeklyDownloads,
+    ScannedAt,
+}
+
 /// Pagination query parameters
 #[derive(Debug, Clone, Deserialize)]
 pub struct PaginationParams {
@@ -445,6 +453,8 @@ pub struct PaginationParams {
     pub registry: Option<Registry>,
     /// Filter by risk level (clean, warning, critical)
     pub risk_level: Option<RiskLevel>,
+    /// Sort order: "weekly_downloads" (default) or "scanned_at"
+    pub sort_by: Option<String>,
 }
 
 /// Full package response for API

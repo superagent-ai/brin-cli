@@ -349,11 +349,16 @@ impl Database {
         offset: i64,
         registry: Option<Registry>,
         risk_level: Option<RiskLevel>,
+        sort_by: PackageSortBy,
     ) -> Result<(Vec<PackageWithCounts>, i64)> {
         let registry_str = registry.map(|r| r.to_string());
         let risk_level_str = risk_level.map(|r| r.to_string());
+        let order_clause = match sort_by {
+            PackageSortBy::WeeklyDownloads => "p.weekly_downloads DESC NULLS LAST, p.name ASC",
+            PackageSortBy::ScannedAt => "p.scanned_at DESC",
+        };
 
-        let packages: Vec<PackageWithCounts> = sqlx::query_as(
+        let sql = format!(
             r#"
             SELECT 
                 p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
@@ -363,16 +368,19 @@ impl Database {
             FROM packages p
             WHERE ($3::text IS NULL OR p.registry = $3)
               AND ($4::text IS NULL OR p.risk_level = $4)
-            ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
+            ORDER BY {}
             LIMIT $1 OFFSET $2
             "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .bind(&registry_str)
-        .bind(&risk_level_str)
-        .fetch_all(&self.pool)
-        .await?;
+            order_clause
+        );
+
+        let packages: Vec<PackageWithCounts> = sqlx::query_as(&sql)
+            .bind(limit)
+            .bind(offset)
+            .bind(&registry_str)
+            .bind(&risk_level_str)
+            .fetch_all(&self.pool)
+            .await?;
 
         let total: (i64,) = sqlx::query_as(
             r#"
@@ -398,12 +406,25 @@ impl Database {
         offset: i64,
         registry: Option<Registry>,
         risk_level: Option<RiskLevel>,
+        sort_by: PackageSortBy,
     ) -> Result<(Vec<PackageWithCounts>, i64)> {
         let pattern = format!("%{}%", query);
         let registry_str = registry.map(|r| r.to_string());
         let risk_level_str = risk_level.map(|r| r.to_string());
+        let order_clause = match sort_by {
+            PackageSortBy::WeeklyDownloads => {
+                "CASE \
+                    WHEN LOWER(p.name) = LOWER($2) THEN 0 \
+                    WHEN LOWER(p.name) LIKE LOWER($2) || '%' THEN 1 \
+                    ELSE 2 \
+                END, \
+                p.weekly_downloads DESC NULLS LAST, \
+                p.name ASC"
+            }
+            PackageSortBy::ScannedAt => "p.scanned_at DESC",
+        };
 
-        let packages: Vec<PackageWithCounts> = sqlx::query_as(
+        let sql = format!(
             r#"
             SELECT 
                 p.id, p.name, p.version, p.registry, p.risk_level, p.trust_score,
@@ -414,25 +435,21 @@ impl Database {
             WHERE p.name ILIKE $1
               AND ($5::text IS NULL OR p.registry = $5)
               AND ($6::text IS NULL OR p.risk_level = $6)
-            ORDER BY 
-                CASE 
-                    WHEN LOWER(p.name) = LOWER($2) THEN 0
-                    WHEN LOWER(p.name) LIKE LOWER($2) || '%' THEN 1
-                    ELSE 2
-                END,
-                p.weekly_downloads DESC NULLS LAST,
-                p.name ASC
+            ORDER BY {}
             LIMIT $3 OFFSET $4
             "#,
-        )
-        .bind(&pattern)
-        .bind(query)
-        .bind(limit)
-        .bind(offset)
-        .bind(&registry_str)
-        .bind(&risk_level_str)
-        .fetch_all(&self.pool)
-        .await?;
+            order_clause
+        );
+
+        let packages: Vec<PackageWithCounts> = sqlx::query_as(&sql)
+            .bind(&pattern)
+            .bind(query)
+            .bind(limit)
+            .bind(offset)
+            .bind(&registry_str)
+            .bind(&risk_level_str)
+            .fetch_all(&self.pool)
+            .await?;
 
         let total: (i64,) = sqlx::query_as(
             r#"
@@ -458,11 +475,16 @@ impl Database {
         offset: i64,
         registry: Option<Registry>,
         risk_level: Option<RiskLevel>,
+        sort_by: PackageSortBy,
     ) -> Result<(Vec<PackageWithCounts>, i64)> {
         let registry_str = registry.map(|r| r.to_string());
         let risk_level_str = risk_level.map(|r| r.to_string());
+        let order_clause = match sort_by {
+            PackageSortBy::WeeklyDownloads => "p.weekly_downloads DESC NULLS LAST, p.name ASC",
+            PackageSortBy::ScannedAt => "p.scanned_at DESC",
+        };
 
-        let packages: Vec<PackageWithCounts> = sqlx::query_as(
+        let sql = format!(
             r#"
             WITH latest AS (
                 SELECT DISTINCT ON (name, registry) *
@@ -477,16 +499,19 @@ impl Database {
                 COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id AND verification_status = 'verified'), 0) as threat_count
             FROM latest p
             WHERE ($4::text IS NULL OR p.risk_level = $4)
-            ORDER BY p.weekly_downloads DESC NULLS LAST, p.name ASC
+            ORDER BY {}
             LIMIT $1 OFFSET $2
             "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .bind(&registry_str)
-        .bind(&risk_level_str)
-        .fetch_all(&self.pool)
-        .await?;
+            order_clause
+        );
+
+        let packages: Vec<PackageWithCounts> = sqlx::query_as(&sql)
+            .bind(limit)
+            .bind(offset)
+            .bind(&registry_str)
+            .bind(&risk_level_str)
+            .fetch_all(&self.pool)
+            .await?;
 
         let total: (i64,) = sqlx::query_as(
             r#"
@@ -515,12 +540,25 @@ impl Database {
         offset: i64,
         registry: Option<Registry>,
         risk_level: Option<RiskLevel>,
+        sort_by: PackageSortBy,
     ) -> Result<(Vec<PackageWithCounts>, i64)> {
         let pattern = format!("%{}%", query);
         let registry_str = registry.map(|r| r.to_string());
         let risk_level_str = risk_level.map(|r| r.to_string());
+        let order_clause = match sort_by {
+            PackageSortBy::WeeklyDownloads => {
+                "CASE \
+                    WHEN LOWER(p.name) = LOWER($2) THEN 0 \
+                    WHEN LOWER(p.name) LIKE LOWER($2) || '%' THEN 1 \
+                    ELSE 2 \
+                END, \
+                p.weekly_downloads DESC NULLS LAST, \
+                p.name ASC"
+            }
+            PackageSortBy::ScannedAt => "p.scanned_at DESC",
+        };
 
-        let packages: Vec<PackageWithCounts> = sqlx::query_as(
+        let sql = format!(
             r#"
             WITH latest AS (
                 SELECT DISTINCT ON (name, registry) *
@@ -536,25 +574,21 @@ impl Database {
                 COALESCE((SELECT COUNT(*) FROM agentic_threats WHERE package_id = p.id AND verification_status = 'verified'), 0) as threat_count
             FROM latest p
             WHERE ($6::text IS NULL OR p.risk_level = $6)
-            ORDER BY 
-                CASE 
-                    WHEN LOWER(p.name) = LOWER($2) THEN 0
-                    WHEN LOWER(p.name) LIKE LOWER($2) || '%' THEN 1
-                    ELSE 2
-                END,
-                p.weekly_downloads DESC NULLS LAST,
-                p.name ASC
+            ORDER BY {}
             LIMIT $3 OFFSET $4
             "#,
-        )
-        .bind(&pattern)
-        .bind(query)
-        .bind(limit)
-        .bind(offset)
-        .bind(&registry_str)
-        .bind(&risk_level_str)
-        .fetch_all(&self.pool)
-        .await?;
+            order_clause
+        );
+
+        let packages: Vec<PackageWithCounts> = sqlx::query_as(&sql)
+            .bind(&pattern)
+            .bind(query)
+            .bind(limit)
+            .bind(offset)
+            .bind(&registry_str)
+            .bind(&risk_level_str)
+            .fetch_all(&self.pool)
+            .await?;
 
         let total: (i64,) = sqlx::query_as(
             r#"
