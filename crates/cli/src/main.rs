@@ -1,17 +1,15 @@
-//! brin CLI - Security-first package gateway for AI agents
+//! brin CLI — thin client for the brin security API
 
-mod agents_md;
 mod api_client;
 mod commands;
-mod config;
-mod project;
-mod ui;
 
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "brin")]
-#[command(about = "brin — 🔍 security-first package gateway for ai agents")]
+#[command(
+    about = "brin — security scanning for packages, repos, MCP servers, skills, domains, commits and more"
+)]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -24,154 +22,49 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize brin in the current project
-    Init {
-        /// Skip prompts and use defaults (enables AGENTS.md docs)
-        #[arg(long, short)]
-        yes: bool,
-    },
-
-    /// Add packages (with safety checks)
-    Add {
-        /// Packages to install (e.g., "lodash", "express@4.18.0")
-        packages: Vec<String>,
-
-        /// Skip all safety checks (dangerous!)
-        #[arg(long)]
-        yolo: bool,
-
-        /// Block packages with any warnings
-        #[arg(long)]
-        strict: bool,
-    },
-
-    /// Remove packages
-    Remove {
-        /// Packages to remove
-        packages: Vec<String>,
-    },
-
-    /// Scan current project for vulnerabilities
-    Scan {
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Check a package without installing
+    /// Check an artifact's security assessment
+    ///
+    /// ARTIFACT format: <origin>/<identifier>
+    ///
+    /// Examples:
+    ///   brin check npm/express
+    ///   brin check npm/lodash@4.17.21
+    ///   brin check pypi/requests
+    ///   brin check crate/serde
+    ///   brin check repo/expressjs/express
+    ///   brin check mcp/modelcontextprotocol/servers
+    ///   brin check skill/owner/repo
+    ///   brin check domain/example.com
+    ///   brin check commit/owner/repo@abc123def
     Check {
-        /// Package to check (e.g., "lodash", "express@4.18.0")
-        package: String,
-    },
+        /// Artifact to check, formatted as <origin>/<identifier>
+        artifact: String,
 
-    /// Update dependencies
-    Update {
-        /// Show what would be updated without making changes
+        /// Include sub-scores (identity, behavior, content, graph) in the response
         #[arg(long)]
-        dry_run: bool,
-    },
+        details: bool,
 
-    /// Show why a package is in your dependency tree
-    Why {
-        /// Package to trace
-        package: String,
-    },
+        /// Webhook URL to receive tier-completion events as the deep scan progresses
+        #[arg(long, value_name = "URL")]
+        webhook: Option<String>,
 
-    /// Uninstall brin from this system
-    Uninstall {
-        /// Skip confirmation prompt
-        #[arg(long, short)]
-        yes: bool,
-
-        /// Also remove project-level files (.brin-docs/, brin.json)
+        /// Print only the X-Brin-* response headers instead of the JSON body
         #[arg(long)]
-        all: bool,
-    },
-
-    /// Upgrade brin to the latest version
-    Upgrade {
-        /// Force upgrade even if already on latest version
-        #[arg(long)]
-        force: bool,
-    },
-
-    /// Manage Agent Skills (scan and install skills from skills.sh)
-    Skills {
-        #[command(subcommand)]
-        action: SkillsAction,
-    },
-}
-
-#[derive(Subcommand)]
-enum SkillsAction {
-    /// Add a skill (with safety checks)
-    Add {
-        /// Skill identifier (owner/repo or owner/repo/path)
-        skill: String,
-
-        /// Skip all safety checks (dangerous!)
-        #[arg(long)]
-        yolo: bool,
-
-        /// Block skills with any warnings
-        #[arg(long)]
-        strict: bool,
-    },
-
-    /// Check a skill without installing
-    Check {
-        /// Skill identifier (owner/repo or owner/repo/path)
-        skill: String,
+        headers: bool,
     },
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Load .env if present
-    let _ = dotenvy::dotenv();
-
-    // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("brin=info".parse().unwrap()),
-        )
-        .init();
-
     let cli = Cli::parse();
-    let client = api_client::SusClient::new(&cli.api_url);
+    let client = api_client::BrinClient::new(&cli.api_url);
 
     match cli.command {
-        Commands::Init { yes } => commands::init::run(yes).await,
-
-        Commands::Add {
-            packages,
-            yolo,
-            strict,
-        } => commands::add::run(&client, packages, yolo, strict).await,
-
-        Commands::Remove { packages } => commands::remove::run(packages).await,
-
-        Commands::Scan { json } => commands::scan::run(&client, json).await,
-
-        Commands::Check { package } => commands::check::run(&client, &package).await,
-
-        Commands::Update { dry_run } => commands::update::run(&client, dry_run).await,
-
-        Commands::Why { package } => commands::why::run(&package).await,
-
-        Commands::Uninstall { yes, all } => commands::uninstall::run(yes, all).await,
-
-        Commands::Upgrade { force } => commands::upgrade::run(force).await,
-
-        Commands::Skills { action } => match action {
-            SkillsAction::Add {
-                skill,
-                yolo,
-                strict,
-            } => commands::skills::run_add(&client, &skill, yolo, strict).await,
-
-            SkillsAction::Check { skill } => commands::skills::run_check(&client, &skill).await,
-        },
+        Commands::Check {
+            artifact,
+            details,
+            webhook,
+            headers,
+        } => commands::check::run(&client, &artifact, details, webhook.as_deref(), headers).await,
     }
 }
