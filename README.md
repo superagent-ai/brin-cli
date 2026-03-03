@@ -21,7 +21,7 @@
 
 ---
 
-this repo contains the **brin cli** — a thin Rust client that wraps the [brin security api](https://api.brin.sh). all scanning, analysis and scoring happens server-side in [brin-core](https://github.com/superagent-ai/brin-core). the cli fetches pre-computed results and prints them.
+this repo contains the **brin cli** — a thin Rust client over the [brin API](https://api.brin.sh). no sdk, no auth, no signup. a single command returns a score, verdict, and threat data.
 
 ---
 
@@ -232,7 +232,7 @@ GET https://api.brin.sh/npm/express
       |
       v
 ┌─────────────────────────────────┐
-│       brin api (brin-core)      │
+│          brin api               │
 │                                 │
 │  tier 1: identity signals  ~2s  │
 │  tier 2: static analysis   ~3s  │
@@ -247,7 +247,7 @@ GET https://api.brin.sh/npm/express
   score · verdict · threats
 ```
 
-all heavy lifting — LLM inference, static analysis, CVE correlation, graph scoring — happens in [brin-core](https://github.com/superagent-ai/brin-core). the cli is a thin display layer over the api.
+all heavy lifting — LLM inference, static analysis, CVE correlation, graph scoring — happens server-side. the cli is a thin display layer over the api.
 
 ---
 
