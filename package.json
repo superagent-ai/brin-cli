@@ -1,8 +1,7 @@
 {
   "name": "brin",
   "version": "0.1.12",
-  "description": "Package gateway for AI agents - secure package installation with CVE scanning and threat detection",
-  "main": "index.js",
+  "description": "the credit score for context — security scanning for packages, repos, MCP servers, skills, domains and commits",
   "bin": {
     "brin": "./bin/brin.js"
   },
@@ -15,15 +14,13 @@
   },
   "keywords": [
     "security",
-    "package-manager",
-    "npm",
-    "cve",
-    "vulnerability",
-    "malware",
     "ai-agents",
     "agent-security",
     "prompt-injection",
-    "typosquatting"
+    "malware",
+    "typosquatting",
+    "mcp",
+    "supply-chain"
   ],
   "author": "brin contributors",
   "license": "MIT",
@@ -45,7 +42,6 @@
   "files": [
     "bin/",
     "scripts/postinstall.js",
-    "index.js",
     "README.md",
     "LICENSE"
   ],
