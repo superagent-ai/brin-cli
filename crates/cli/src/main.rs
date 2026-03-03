@@ -56,17 +56,6 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Load .env if present
-    let _ = dotenvy::dotenv();
-
-    // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("brin=info".parse().unwrap()),
-        )
-        .init();
-
     let cli = Cli::parse();
     let client = api_client::BrinClient::new(&cli.api_url);
 
