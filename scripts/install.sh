@@ -91,8 +91,6 @@ main() {
     fi
 
     info "Done! Run 'brin --help' to get started."
-    echo ""
-    echo "To uninstall later, run: brin uninstall"
 }
 
 main
