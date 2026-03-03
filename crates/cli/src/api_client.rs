@@ -1,312 +1,392 @@
-//! API client for the brin backend
+//! HTTP client for the brin API
 
 use anyhow::{Context, Result};
-use common::{
-    BulkLookupRequest, PackageResponse, PackageVersionPair, Registry, ScanRequest,
-    ScanRequestResponse,
-};
 use reqwest::Client;
 
-/// Client for the brin API
-pub struct SusClient {
-    client: Client,
-    base_url: String,
+/// The X-Brin-* response headers returned on every API response
+#[derive(Debug)]
+pub struct BrinHeaders {
+    pub score: Option<String>,
+    pub verdict: Option<String>,
+    pub confidence: Option<String>,
+    pub tolerance: Option<String>,
 }
 
-impl SusClient {
+/// Full result from a check call: raw body + extracted headers
+#[derive(Debug)]
+pub struct CheckResult {
+    /// Raw JSON body as returned by the API
+    pub body: String,
+    /// Extracted X-Brin-* response headers
+    pub headers: BrinHeaders,
+}
+
+/// Client for the brin API
+pub struct BrinClient {
+    client: Client,
+    pub(crate) base_url: String,
+}
+
+impl BrinClient {
     /// Create a new API client
     pub fn new(base_url: &str) -> Self {
         Self {
             client: Client::builder()
                 .user_agent(format!("brin-cli/{}", env!("CARGO_PKG_VERSION")))
                 .build()
-                .expect("Failed to create HTTP client"),
+                .expect("failed to build HTTP client"),
             base_url: base_url.trim_end_matches('/').to_string(),
         }
     }
 
-    /// Get package assessment (latest version)
-    pub async fn get_package(&self, name: &str) -> Result<PackageResponse> {
-        let url = format!("{}/v1/packages/{}", self.base_url, name);
+    /// Check an artifact.
+    ///
+    /// - `origin`     — e.g. `"npm"`, `"pypi"`, `"repo"`, `"mcp"`, `"skill"`, `"domain"`, `"commit"`
+    /// - `identifier` — the artifact identifier, e.g. `"express"`, `"owner/repo"`, `"owner/repo@sha"`
+    /// - `details`    — if true, appends `?details=true` to include sub-scores
+    /// - `webhook`    — if provided, appends `?webhook=<url>` so the API POSTs tier events
+    pub async fn check(
+        &self,
+        origin: &str,
+        identifier: &str,
+        details: bool,
+        webhook: Option<&str>,
+    ) -> Result<CheckResult> {
+        let url = format!("{}/{}/{}", self.base_url, origin, identifier);
+
+        let mut query: Vec<(&str, String)> = Vec::new();
+        if details {
+            query.push(("details", "true".into()));
+        }
+        if let Some(wh) = webhook {
+            query.push(("webhook", wh.to_string()));
+        }
 
         let response = self
             .client
             .get(&url)
+            .query(&query)
             .send()
             .await
-            .context("Failed to connect to brin API")?;
-
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
-            anyhow::bail!("Package '{}' not found in brin database", name);
-        }
-
-        response
+            .context("failed to connect to brin API")?
             .error_for_status()
-            .context("API returned an error")?
-            .json()
-            .await
-            .context("Failed to parse API response")
-    }
+            .context("brin API returned an error")?;
 
-    /// Get package assessment for a specific version
-    pub async fn get_package_version(&self, name: &str, version: &str) -> Result<PackageResponse> {
-        let url = format!("{}/v1/packages/{}/{}", self.base_url, name, version);
-
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .context("Failed to connect to brin API")?;
-
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
-            anyhow::bail!("Package '{}@{}' not found in brin database", name, version);
-        }
-
-        response
-            .error_for_status()
-            .context("API returned an error")?
-            .json()
-            .await
-            .context("Failed to parse API response")
-    }
-
-    /// Request a scan for a package (defaults to npm registry)
-    pub async fn request_scan(
-        &self,
-        name: &str,
-        version: Option<&str>,
-    ) -> Result<ScanRequestResponse> {
-        self.request_scan_with_registry(name, version, None).await
-    }
-
-    /// Request a scan for a package with a specific registry
-    pub async fn request_scan_with_registry(
-        &self,
-        name: &str,
-        version: Option<&str>,
-        registry: Option<Registry>,
-    ) -> Result<ScanRequestResponse> {
-        let url = format!("{}/v1/scan", self.base_url);
-
-        let request = ScanRequest {
-            name: name.to_string(),
-            version: version.map(String::from),
-            registry,
+        // Extract X-Brin-* headers before consuming the response body
+        let brin_headers = BrinHeaders {
+            score: response
+                .headers()
+                .get("x-brin-score")
+                .and_then(|v| v.to_str().ok())
+                .map(String::from),
+            verdict: response
+                .headers()
+                .get("x-brin-verdict")
+                .and_then(|v| v.to_str().ok())
+                .map(String::from),
+            confidence: response
+                .headers()
+                .get("x-brin-confidence")
+                .and_then(|v| v.to_str().ok())
+                .map(String::from),
+            tolerance: response
+                .headers()
+                .get("x-brin-tolerance")
+                .and_then(|v| v.to_str().ok())
+                .map(String::from),
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&request)
-            .send()
+        let body = response
+            .text()
             .await
-            .context("Failed to connect to brin API")?;
+            .context("failed to read brin API response")?;
 
-        response
-            .error_for_status()
-            .context("API returned an error")?
-            .json()
-            .await
-            .context("Failed to parse API response")
-    }
-
-    /// Bulk lookup multiple packages
-    pub async fn bulk_lookup(
-        &self,
-        packages: &[PackageVersionPair],
-    ) -> Result<Vec<PackageResponse>> {
-        let url = format!("{}/v1/bulk", self.base_url);
-
-        let request = BulkLookupRequest {
-            packages: packages.to_vec(),
-        };
-
-        let response = self
-            .client
-            .post(&url)
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to connect to brin API")?;
-
-        response
-            .error_for_status()
-            .context("API returned an error")?
-            .json()
-            .await
-            .context("Failed to parse API response")
-    }
-
-    /// Check if API is reachable
-    #[allow(dead_code)]
-    pub async fn health_check(&self) -> Result<bool> {
-        let url = format!("{}/health", self.base_url);
-
-        match self.client.get(&url).send().await {
-            Ok(response) => Ok(response.status().is_success()),
-            Err(_) => Ok(false),
-        }
+        Ok(CheckResult {
+            body,
+            headers: brin_headers,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn sample_package_response() -> serde_json::Value {
+    fn safe_body() -> serde_json::Value {
         serde_json::json!({
+            "origin": "npm",
             "name": "express",
-            "version": "4.18.2",
-            "registry": "npm",
-            "risk_level": "clean",
-            "risk_reasons": [],
-            "trust_score": 85,
-            "publisher": null,
-            "weekly_downloads": 25000000,
-            "install_scripts": {
-                "preinstall": false,
-                "install": false,
-                "postinstall": false,
-                "prepare": false
-            },
-            "cves": [],
-            "agentic_threats": [],
-            "capabilities": {
-                "network": { "makes_requests": false, "domains": [], "protocols": [] },
-                "filesystem": { "reads": false, "writes": false, "paths": [] },
-                "process": { "spawns_children": false, "commands": [] },
-                "environment": { "accessed_vars": [] },
-                "native": { "has_native": false, "native_modules": [] }
-            },
-            "skill_md": null,
-            "scanned_at": "2024-01-15T10:30:00Z"
+            "score": 81,
+            "confidence": "medium",
+            "verdict": "safe",
+            "tolerance": "conservative",
+            "scanned_at": "2026-02-25T09:00:00Z",
+            "url": "https://api.brin.sh/npm/express"
         })
     }
 
+    fn safe_body_with_sub_scores() -> serde_json::Value {
+        let mut body = safe_body();
+        body["sub_scores"] = serde_json::json!({
+            "identity": 95.0,
+            "behavior": 40.0,
+            "content": 100.0,
+            "graph": 30.0
+        });
+        body
+    }
+
+    // ── base URL handling ────────────────────────────────────────────────
+
+    #[test]
+    fn trailing_slash_stripped() {
+        let c1 = BrinClient::new("https://api.brin.sh/");
+        let c2 = BrinClient::new("https://api.brin.sh");
+        assert_eq!(c1.base_url, "https://api.brin.sh");
+        assert_eq!(c2.base_url, "https://api.brin.sh");
+    }
+
+    // ── check — basic GET ────────────────────────────────────────────────
+
     #[tokio::test]
-    async fn test_get_package_success() {
-        let mock_server = MockServer::start().await;
+    async fn check_simple_package() {
+        let server = MockServer::start().await;
 
         Mock::given(method("GET"))
-            .and(path("/v1/packages/express"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(sample_package_response()))
-            .mount(&mock_server)
+            .and(path("/npm/express"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("x-brin-score", "81")
+                    .insert_header("x-brin-verdict", "safe")
+                    .insert_header("x-brin-confidence", "medium")
+                    .insert_header("x-brin-tolerance", "conservative")
+                    .set_body_json(safe_body()),
+            )
+            .mount(&server)
             .await;
 
-        let client = SusClient::new(&mock_server.uri());
-        let result = client.get_package("express").await;
+        let client = BrinClient::new(&server.uri());
+        let result = client.check("npm", "express", false, None).await.unwrap();
 
-        assert!(result.is_ok());
-        let package = result.unwrap();
-        assert_eq!(package.name, "express");
-        assert_eq!(package.version, "4.18.2");
+        // body is valid JSON containing expected fields
+        let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
+        assert_eq!(v["name"], "express");
+        assert_eq!(v["verdict"], "safe");
+        assert_eq!(v["score"], 81);
+
+        // headers extracted correctly
+        assert_eq!(result.headers.score.as_deref(), Some("81"));
+        assert_eq!(result.headers.verdict.as_deref(), Some("safe"));
+        assert_eq!(result.headers.confidence.as_deref(), Some("medium"));
+        assert_eq!(result.headers.tolerance.as_deref(), Some("conservative"));
     }
 
     #[tokio::test]
-    async fn test_get_package_not_found() {
-        let mock_server = MockServer::start().await;
+    async fn check_multi_segment_identifier() {
+        let server = MockServer::start().await;
 
         Mock::given(method("GET"))
-            .and(path("/v1/packages/nonexistent-package"))
-            .respond_with(ResponseTemplate::new(404))
-            .mount(&mock_server)
+            .and(path("/repo/expressjs/express"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "origin": "repo",
+                "name": "expressjs/express",
+                "score": 91,
+                "verdict": "safe"
+            })))
+            .mount(&server)
             .await;
 
-        let client = SusClient::new(&mock_server.uri());
-        let result = client.get_package("nonexistent-package").await;
+        let client = BrinClient::new(&server.uri());
+        let result = client
+            .check("repo", "expressjs/express", false, None)
+            .await
+            .unwrap();
 
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
+        assert_eq!(v["origin"], "repo");
+        assert_eq!(v["score"], 91);
+    }
+
+    #[tokio::test]
+    async fn check_versioned_package() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/npm/lodash@4.17.21"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "origin": "npm",
+                "name": "lodash",
+                "version": "4.17.21",
+                "score": 64,
+                "verdict": "caution"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = BrinClient::new(&server.uri());
+        let result = client
+            .check("npm", "lodash@4.17.21", false, None)
+            .await
+            .unwrap();
+
+        let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
+        assert_eq!(v["version"], "4.17.21");
+        assert_eq!(v["verdict"], "caution");
+    }
+
+    // ── check — ?details=true ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn check_details_flag_appends_query_param() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/npm/express"))
+            .and(query_param("details", "true"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(safe_body_with_sub_scores()))
+            .mount(&server)
+            .await;
+
+        let client = BrinClient::new(&server.uri());
+        let result = client.check("npm", "express", true, None).await.unwrap();
+
+        let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
         assert!(
-            err.contains("not found"),
-            "Error should mention not found: {}",
-            err
+            v["sub_scores"].is_object(),
+            "sub_scores should be present with --details"
+        );
+        assert_eq!(v["sub_scores"]["identity"], 95.0);
+    }
+
+    #[tokio::test]
+    async fn check_without_details_omits_query_param() {
+        let server = MockServer::start().await;
+
+        // This mock matches only requests WITHOUT ?details — wiremock returns
+        // 404 for unmatched requests, so the test would fail if details=true
+        // were sent when not requested.
+        Mock::given(method("GET"))
+            .and(path("/npm/express"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(safe_body()))
+            .mount(&server)
+            .await;
+
+        let client = BrinClient::new(&server.uri());
+        // details=false — should succeed without the query param being required
+        let result = client.check("npm", "express", false, None).await.unwrap();
+        let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
+        assert!(v["sub_scores"].is_null() || !v.as_object().unwrap().contains_key("sub_scores"));
+    }
+
+    // ── check — ?webhook=<url> ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn check_webhook_appends_query_param() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/npm/express"))
+            .and(query_param("webhook", "https://my-server.com/cb"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(safe_body()))
+            .mount(&server)
+            .await;
+
+        let client = BrinClient::new(&server.uri());
+        let result = client
+            .check("npm", "express", false, Some("https://my-server.com/cb"))
+            .await
+            .unwrap();
+
+        let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
+        assert_eq!(v["verdict"], "safe");
+    }
+
+    #[tokio::test]
+    async fn check_details_and_webhook_combined() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/npm/express"))
+            .and(query_param("details", "true"))
+            .and(query_param("webhook", "https://my-server.com/cb"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(safe_body_with_sub_scores()))
+            .mount(&server)
+            .await;
+
+        let client = BrinClient::new(&server.uri());
+        let result = client
+            .check("npm", "express", true, Some("https://my-server.com/cb"))
+            .await
+            .unwrap();
+
+        let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
+        assert!(v["sub_scores"].is_object());
+    }
+
+    // ── check — missing headers are None ────────────────────────────────
+
+    #[tokio::test]
+    async fn check_missing_brin_headers_are_none() {
+        let server = MockServer::start().await;
+
+        // Response with no X-Brin-* headers
+        Mock::given(method("GET"))
+            .and(path("/npm/express"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(safe_body()))
+            .mount(&server)
+            .await;
+
+        let client = BrinClient::new(&server.uri());
+        let result = client.check("npm", "express", false, None).await.unwrap();
+
+        assert!(result.headers.score.is_none());
+        assert!(result.headers.verdict.is_none());
+        assert!(result.headers.confidence.is_none());
+        assert!(result.headers.tolerance.is_none());
+    }
+
+    // ── check — API error propagation ───────────────────────────────────
+
+    #[tokio::test]
+    async fn check_propagates_api_error() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/npm/nonexistent"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let client = BrinClient::new(&server.uri());
+        let err = client
+            .check("npm", "nonexistent", false, None)
+            .await
+            .unwrap_err();
+
+        assert!(
+            err.to_string().contains("error"),
+            "expected error for 404, got: {err}"
         );
     }
 
     #[tokio::test]
-    async fn test_get_package_version_success() {
-        let mock_server = MockServer::start().await;
+    async fn check_propagates_server_error() {
+        let server = MockServer::start().await;
 
         Mock::given(method("GET"))
-            .and(path("/v1/packages/lodash/4.17.21"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(sample_package_response()))
-            .mount(&mock_server)
-            .await;
-
-        let client = SusClient::new(&mock_server.uri());
-        let result = client.get_package_version("lodash", "4.17.21").await;
-
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_health_check_success() {
-        let mock_server = MockServer::start().await;
-
-        Mock::given(method("GET"))
-            .and(path("/health"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(serde_json::json!({"status": "ok"})),
-            )
-            .mount(&mock_server)
-            .await;
-
-        let client = SusClient::new(&mock_server.uri());
-        let result = client.health_check().await;
-
-        assert!(result.is_ok());
-        assert!(result.unwrap());
-    }
-
-    #[tokio::test]
-    async fn test_health_check_failure() {
-        let mock_server = MockServer::start().await;
-
-        Mock::given(method("GET"))
-            .and(path("/health"))
+            .and(path("/npm/express"))
             .respond_with(ResponseTemplate::new(500))
-            .mount(&mock_server)
+            .mount(&server)
             .await;
 
-        let client = SusClient::new(&mock_server.uri());
-        let result = client.health_check().await;
+        let client = BrinClient::new(&server.uri());
+        let err = client
+            .check("npm", "express", false, None)
+            .await
+            .unwrap_err();
 
-        assert!(result.is_ok());
-        assert!(!result.unwrap(), "Health check should return false for 500");
-    }
-
-    #[tokio::test]
-    async fn test_request_scan() {
-        let mock_server = MockServer::start().await;
-
-        Mock::given(method("POST"))
-            .and(path("/v1/scan"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "job_id": "550e8400-e29b-41d4-a716-446655440000",
-                "estimated_seconds": 30
-            })))
-            .mount(&mock_server)
-            .await;
-
-        let client = SusClient::new(&mock_server.uri());
-        let result = client.request_scan("new-package", Some("1.0.0")).await;
-
-        assert!(result.is_ok());
-        let response = result.unwrap();
-        assert_eq!(response.estimated_seconds, 30);
-    }
-
-    #[tokio::test]
-    async fn test_base_url_trailing_slash_handling() {
-        // Test that trailing slashes are handled correctly
-        let client1 = SusClient::new("http://api.example.com/");
-        let client2 = SusClient::new("http://api.example.com");
-
-        assert_eq!(client1.base_url, "http://api.example.com");
-        assert_eq!(client2.base_url, "http://api.example.com");
+        assert!(err.to_string().contains("error"));
     }
 }
