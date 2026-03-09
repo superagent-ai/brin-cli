@@ -21,6 +21,17 @@ pub struct CheckResult {
     pub headers: BrinHeaders,
 }
 
+/// Optional query parameters for a check request
+#[derive(Debug, Default)]
+pub struct CheckOptions<'a> {
+    pub details: bool,
+    pub webhook: Option<&'a str>,
+    pub tolerance: Option<&'a str>,
+    pub refresh: bool,
+    pub mode: Option<&'a str>,
+    pub format: Option<&'a str>,
+}
+
 /// Client for the brin API
 pub struct BrinClient {
     client: Client,
@@ -43,23 +54,33 @@ impl BrinClient {
     ///
     /// - `origin`     — e.g. `"npm"`, `"pypi"`, `"repo"`, `"mcp"`, `"skill"`, `"domain"`, `"commit"`
     /// - `identifier` — the artifact identifier, e.g. `"express"`, `"owner/repo"`, `"owner/repo@sha"`
-    /// - `details`    — if true, appends `?details=true` to include sub-scores
-    /// - `webhook`    — if provided, appends `?webhook=<url>` so the API POSTs tier events
+    /// - `opts`       — optional query parameters (details, webhook, tolerance, refresh, mode, format)
     pub async fn check(
         &self,
         origin: &str,
         identifier: &str,
-        details: bool,
-        webhook: Option<&str>,
+        opts: &CheckOptions<'_>,
     ) -> Result<CheckResult> {
         let url = format!("{}/{}/{}", self.base_url, origin, identifier);
 
         let mut query: Vec<(&str, String)> = Vec::new();
-        if details {
+        if opts.details {
             query.push(("details", "true".into()));
         }
-        if let Some(wh) = webhook {
+        if let Some(wh) = opts.webhook {
             query.push(("webhook", wh.to_string()));
+        }
+        if let Some(t) = opts.tolerance {
+            query.push(("tolerance", t.to_string()));
+        }
+        if opts.refresh {
+            query.push(("refresh", "true".into()));
+        }
+        if let Some(m) = opts.mode {
+            query.push(("mode", m.to_string()));
+        }
+        if let Some(f) = opts.format {
+            query.push(("format", f.to_string()));
         }
 
         let response = self
@@ -168,7 +189,10 @@ mod tests {
             .await;
 
         let client = BrinClient::new(&server.uri());
-        let result = client.check("npm", "express", false, None).await.unwrap();
+        let result = client
+            .check("npm", "express", &CheckOptions::default())
+            .await
+            .unwrap();
 
         // body is valid JSON containing expected fields
         let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
@@ -200,7 +224,7 @@ mod tests {
 
         let client = BrinClient::new(&server.uri());
         let result = client
-            .check("repo", "expressjs/express", false, None)
+            .check("repo", "expressjs/express", &CheckOptions::default())
             .await
             .unwrap();
 
@@ -227,7 +251,7 @@ mod tests {
 
         let client = BrinClient::new(&server.uri());
         let result = client
-            .check("npm", "lodash@4.17.21", false, None)
+            .check("npm", "lodash@4.17.21", &CheckOptions::default())
             .await
             .unwrap();
 
@@ -250,7 +274,11 @@ mod tests {
             .await;
 
         let client = BrinClient::new(&server.uri());
-        let result = client.check("npm", "express", true, None).await.unwrap();
+        let opts = CheckOptions {
+            details: true,
+            ..Default::default()
+        };
+        let result = client.check("npm", "express", &opts).await.unwrap();
 
         let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
         assert!(
@@ -274,8 +302,10 @@ mod tests {
             .await;
 
         let client = BrinClient::new(&server.uri());
-        // details=false — should succeed without the query param being required
-        let result = client.check("npm", "express", false, None).await.unwrap();
+        let result = client
+            .check("npm", "express", &CheckOptions::default())
+            .await
+            .unwrap();
         let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
         assert!(v["sub_scores"].is_null() || !v.as_object().unwrap().contains_key("sub_scores"));
     }
@@ -294,10 +324,11 @@ mod tests {
             .await;
 
         let client = BrinClient::new(&server.uri());
-        let result = client
-            .check("npm", "express", false, Some("https://my-server.com/cb"))
-            .await
-            .unwrap();
+        let opts = CheckOptions {
+            webhook: Some("https://my-server.com/cb"),
+            ..Default::default()
+        };
+        let result = client.check("npm", "express", &opts).await.unwrap();
 
         let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
         assert_eq!(v["verdict"], "safe");
@@ -316,10 +347,12 @@ mod tests {
             .await;
 
         let client = BrinClient::new(&server.uri());
-        let result = client
-            .check("npm", "express", true, Some("https://my-server.com/cb"))
-            .await
-            .unwrap();
+        let opts = CheckOptions {
+            details: true,
+            webhook: Some("https://my-server.com/cb"),
+            ..Default::default()
+        };
+        let result = client.check("npm", "express", &opts).await.unwrap();
 
         let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
         assert!(v["sub_scores"].is_object());
@@ -339,7 +372,10 @@ mod tests {
             .await;
 
         let client = BrinClient::new(&server.uri());
-        let result = client.check("npm", "express", false, None).await.unwrap();
+        let result = client
+            .check("npm", "express", &CheckOptions::default())
+            .await
+            .unwrap();
 
         assert!(result.headers.score.is_none());
         assert!(result.headers.verdict.is_none());
@@ -361,7 +397,7 @@ mod tests {
 
         let client = BrinClient::new(&server.uri());
         let err = client
-            .check("npm", "nonexistent", false, None)
+            .check("npm", "nonexistent", &CheckOptions::default())
             .await
             .unwrap_err();
 
@@ -383,10 +419,137 @@ mod tests {
 
         let client = BrinClient::new(&server.uri());
         let err = client
-            .check("npm", "express", false, None)
+            .check("npm", "express", &CheckOptions::default())
             .await
             .unwrap_err();
 
         assert!(err.to_string().contains("error"));
+    }
+
+    // ── check — ?tolerance=<level> ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn check_tolerance_appends_query_param() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/npm/express"))
+            .and(query_param("tolerance", "lenient"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(safe_body()))
+            .mount(&server)
+            .await;
+
+        let client = BrinClient::new(&server.uri());
+        let opts = CheckOptions {
+            tolerance: Some("lenient"),
+            ..Default::default()
+        };
+        let result = client.check("npm", "express", &opts).await.unwrap();
+
+        let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
+        assert_eq!(v["verdict"], "safe");
+    }
+
+    // ── check — ?refresh=true ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn check_refresh_appends_query_param() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/npm/express"))
+            .and(query_param("refresh", "true"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(safe_body()))
+            .mount(&server)
+            .await;
+
+        let client = BrinClient::new(&server.uri());
+        let opts = CheckOptions {
+            refresh: true,
+            ..Default::default()
+        };
+        let result = client.check("npm", "express", &opts).await.unwrap();
+
+        let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
+        assert_eq!(v["verdict"], "safe");
+    }
+
+    // ── check — ?mode=full ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn check_mode_appends_query_param() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/npm/express"))
+            .and(query_param("mode", "full"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(safe_body()))
+            .mount(&server)
+            .await;
+
+        let client = BrinClient::new(&server.uri());
+        let opts = CheckOptions {
+            mode: Some("full"),
+            ..Default::default()
+        };
+        let result = client.check("npm", "express", &opts).await.unwrap();
+
+        let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
+        assert_eq!(v["verdict"], "safe");
+    }
+
+    // ── check — ?format=<fmt> ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn check_format_appends_query_param() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/npm/express"))
+            .and(query_param("format", "simple"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("safe 85"))
+            .mount(&server)
+            .await;
+
+        let client = BrinClient::new(&server.uri());
+        let opts = CheckOptions {
+            format: Some("simple"),
+            ..Default::default()
+        };
+        let result = client.check("npm", "express", &opts).await.unwrap();
+
+        assert_eq!(result.body, "safe 85");
+    }
+
+    // ── check — all new params combined ──────────────────────────────────
+
+    #[tokio::test]
+    async fn check_all_new_params_combined() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/npm/express"))
+            .and(query_param("details", "true"))
+            .and(query_param("tolerance", "yolo"))
+            .and(query_param("refresh", "true"))
+            .and(query_param("mode", "full"))
+            .and(query_param("format", "json"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(safe_body_with_sub_scores()))
+            .mount(&server)
+            .await;
+
+        let client = BrinClient::new(&server.uri());
+        let opts = CheckOptions {
+            details: true,
+            tolerance: Some("yolo"),
+            refresh: true,
+            mode: Some("full"),
+            format: Some("json"),
+            ..Default::default()
+        };
+        let result = client.check("npm", "express", &opts).await.unwrap();
+
+        let v: serde_json::Value = serde_json::from_str(&result.body).unwrap();
+        assert!(v["sub_scores"].is_object());
     }
 }

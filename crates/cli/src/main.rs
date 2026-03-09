@@ -3,6 +3,7 @@
 mod api_client;
 mod commands;
 
+use api_client::CheckOptions;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -48,6 +49,22 @@ enum Commands {
         #[arg(long, value_name = "URL")]
         webhook: Option<String>,
 
+        /// Safety tolerance: conservative (default), lenient, or yolo
+        #[arg(long, value_name = "LEVEL")]
+        tolerance: Option<String>,
+
+        /// Force a fresh scan, ignoring any cached result
+        #[arg(long)]
+        refresh: bool,
+
+        /// Scan mode: omit for async (returns preliminary score), or "full" for synchronous complete scan
+        #[arg(long, value_name = "MODE")]
+        mode: Option<String>,
+
+        /// Response format: json (default), simple, or badge
+        #[arg(long, value_name = "FORMAT")]
+        format: Option<String>,
+
         /// Print only the X-Brin-* response headers instead of the JSON body
         #[arg(long)]
         headers: bool,
@@ -64,7 +81,21 @@ async fn main() -> anyhow::Result<()> {
             artifact,
             details,
             webhook,
+            tolerance,
+            refresh,
+            mode,
+            format,
             headers,
-        } => commands::check::run(&client, &artifact, details, webhook.as_deref(), headers).await,
+        } => {
+            let opts = CheckOptions {
+                details,
+                webhook: webhook.as_deref(),
+                tolerance: tolerance.as_deref(),
+                refresh,
+                mode: mode.as_deref(),
+                format: format.as_deref(),
+            };
+            commands::check::run(&client, &artifact, &opts, headers).await
+        }
     }
 }
