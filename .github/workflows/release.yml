@@ -77,6 +77,11 @@ jobs:
         with:
           path: artifacts
 
+      - name: Delete existing release if present
+        run: gh release delete "${{ github.ref_name }}" --yes || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create Release
         run: |
           gh release create "${{ github.ref_name }}" \
