@@ -1,6 +1,6 @@
 {
   "name": "brin",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "the credit score for context — security scanning for packages, repos, MCP servers, skills, domains and commits",
   "bin": {
     "brin": "./bin/brin.js"

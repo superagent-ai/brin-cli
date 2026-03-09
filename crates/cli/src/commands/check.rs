@@ -1,6 +1,6 @@
 //! check command — look up an artifact's security assessment
 
-use crate::api_client::BrinClient;
+use crate::api_client::{BrinClient, CheckOptions};
 use anyhow::{bail, Result};
 
 /// Parse `<origin>/<identifier>` from the artifact string.
@@ -36,13 +36,12 @@ pub(crate) fn parse_artifact(artifact: &str) -> Result<(&str, &str)> {
 pub async fn run(
     client: &BrinClient,
     artifact: &str,
-    details: bool,
-    webhook: Option<&str>,
+    opts: &CheckOptions<'_>,
     headers: bool,
 ) -> Result<()> {
     let (origin, identifier) = parse_artifact(artifact)?;
 
-    let result = client.check(origin, identifier, details, webhook).await?;
+    let result = client.check(origin, identifier, opts).await?;
 
     if headers {
         // Print only the X-Brin-* response headers, one per line
