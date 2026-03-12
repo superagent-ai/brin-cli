@@ -229,7 +229,7 @@ if brin is unreachable, the agent continues as normal — zero risk to your exis
 ## local development
 
 ```bash
-git clone https://github.com/superagent-ai/brin
+git clone https://github.com/superagent-ai/brin-cli
 cd brin
 cargo build
 cargo test

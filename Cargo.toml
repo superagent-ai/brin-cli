@@ -5,11 +5,11 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.15"
+version = "0.1.16"
 edition = "2021"
 authors = ["brin contributors"]
 license = "MIT"
-repository = "https://github.com/superagent-ai/brin"
+repository = "https://github.com/superagent-ai/brin-cli"
 
 [workspace.dependencies]
 # Async runtime

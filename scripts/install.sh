@@ -4,7 +4,7 @@ set -e
 # brin installer
 # Usage: curl -fsSL https://brin.sh/install.sh | sh
 
-REPO="superagent-ai/brin"
+REPO="superagent-ai/brin-cli"
 BINARY="brin"
 INSTALL_DIR="${BRIN_INSTALL_DIR:-$HOME/.local/bin}"
 

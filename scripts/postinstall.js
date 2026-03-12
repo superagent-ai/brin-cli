@@ -7,7 +7,7 @@ const { execSync } = require('child_process');
 const zlib = require('zlib');
 const tar = require('tar');
 
-const REPO = 'superagent-ai/brin';
+const REPO = 'superagent-ai/brin-cli';
 const BINARY_NAME = 'brin';
 
 // Color codes for terminal output

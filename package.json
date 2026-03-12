@@ -1,6 +1,6 @@
 {
   "name": "brin",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "the credit score for context — security scanning for packages, repos, MCP servers, skills, domains and commits",
   "bin": {
     "brin": "./bin/brin.js"
@@ -10,7 +10,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/superagent-ai/brin.git"
+    "url": "https://github.com/superagent-ai/brin-cli.git"
   },
   "keywords": [
     "security",
@@ -25,7 +25,7 @@
   "author": "brin contributors",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/superagent-ai/brin/issues"
+    "url": "https://github.com/superagent-ai/brin-cli/issues"
   },
   "homepage": "https://brin.sh",
   "engines": {

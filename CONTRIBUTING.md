@@ -17,7 +17,7 @@ Thanks for your interest in contributing to brin! We welcome contributions of al
 Before contributing, please:
 
 1. Read the [README](README.md) to understand the project
-2. Check [existing issues](https://github.com/superagent-ai/brin/issues) to avoid duplicates
+2. Check [existing issues](https://github.com/superagent-ai/brin-cli/issues) to avoid duplicates
 3. For major changes, open an issue first to discuss
 
 ## Development Setup
@@ -32,7 +32,7 @@ Before contributing, please:
 
 ```bash
 # Clone the repo
-git clone https://github.com/superagent-ai/brin
+git clone https://github.com/superagent-ai/brin-cli
 cd brin
 
 # Set up git hooks
@@ -74,7 +74,7 @@ make check    # Run all checks (fmt + lint + test)
 
 ### Reporting Bugs
 
-Use the [bug report template](https://github.com/superagent-ai/brin/issues/new?template=bug.yml) and include:
+Use the [bug report template](https://github.com/superagent-ai/brin-cli/issues/new?template=bug.yml) and include:
 
 - Steps to reproduce
 - Expected vs actual behavior
@@ -83,7 +83,7 @@ Use the [bug report template](https://github.com/superagent-ai/brin/issues/new?t
 
 ### Suggesting Features
 
-Use the [feature request template](https://github.com/superagent-ai/brin/issues/new?template=feature.yml) and describe:
+Use the [feature request template](https://github.com/superagent-ai/brin-cli/issues/new?template=feature.yml) and describe:
 
 - The problem you're trying to solve
 - Your proposed solution
@@ -167,7 +167,7 @@ PRs are squash-merged to keep history clean.
 
 - [Discord](https://discord.gg/spZ7MnqFT4) — chat with the team
 - [Twitter/X](https://x.com/superagent_ai) — follow for updates
-- [GitHub Issues](https://github.com/superagent-ai/brin/issues) — bugs and features
+- [GitHub Issues](https://github.com/superagent-ai/brin-cli/issues) — bugs and features
 
 ---
 
